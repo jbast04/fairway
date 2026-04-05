@@ -9,28 +9,38 @@ interface Props {
   hole: ActiveHole
   step: PlayStep
   pendingStart: [number, number] | null
-  pendingEnd: [number, number] | null
+  mapCenter: [number, number]
   onPrevHole: () => void
   onNextHole: () => void
   onConfirm: () => void
 }
 
 const STEP_LABELS: Record<PlayStep, string> = {
-  idle: '',
-  'set-start': 'Tap shot start',
-  'set-end':   'Tap landing spot',
-  'log-shot':  'Log this shot',
+  idle:       '',
+  'set-flag': 'Pan to flag, confirm ✓',
+  'set-start':'Pan to tee, confirm ✓',
+  'set-end':  'Pan to target, confirm ✓',
+  'log-shot': 'Log this shot',
 }
 
 export default function HUD({
-  round, hole, step, pendingStart, pendingEnd,
+  round, hole, step, pendingStart, mapCenter,
   onPrevHole, onNextHole, onConfirm,
 }: Props) {
   // Distance to flag from pending start
   let distToFlag: number | null = null
   if (pendingStart && hole.flagLat && hole.flagLng) {
-    distToFlag = haversineYards(pendingStart[0], pendingStart[1], hole.flagLat, hole.flagLng)
+    distToFlag = Math.round(haversineYards(pendingStart[0], pendingStart[1], hole.flagLat, hole.flagLng))
   }
+
+  // Live shot distance: from pendingStart to current map center (while choosing target)
+  let liveDistance: number | null = null
+  if (step === 'set-end' && pendingStart) {
+    liveDistance = Math.round(haversineYards(pendingStart[0], pendingStart[1], mapCenter[0], mapCenter[1]))
+  }
+
+  // Live flag distance: from map center to nothing yet (while placing flag or start)
+  const showConfirm = step === 'set-flag' || step === 'set-start' || step === 'set-end'
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 z-30 p-3">
@@ -62,21 +72,36 @@ export default function HUD({
           >›</button>
         </div>
 
-        {/* Step label + confirm */}
+        {/* Step label + confirm button */}
         <div className="pointer-events-auto flex flex-col items-end gap-2">
-          {step !== 'idle' && (
+          {step !== 'idle' && step !== 'log-shot' && (
             <div className="rounded-xl border border-border bg-surface/90 px-3 py-1.5 backdrop-blur">
               <p className="text-xs text-text">{STEP_LABELS[step]}</p>
             </div>
           )}
-          {step === 'set-end' && pendingStart && (
+          {showConfirm && (
             <button
               onClick={onConfirm}
-              className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-lg text-bg shadow active:scale-95"
+              className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent text-xl font-bold text-bg shadow-lg active:scale-95"
             >✓</button>
           )}
         </div>
       </div>
+
+      {/* Large live distance while selecting target */}
+      {liveDistance !== null && liveDistance > 0 && (
+        <div className="mt-4 flex flex-col items-center">
+          <p
+            className="text-6xl font-bold text-white"
+            style={{ textShadow: '0 2px 8px rgba(0,0,0,0.9)' }}
+          >
+            {liveDistance}
+          </p>
+          <p className="text-sm font-semibold text-white/80" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
+            yards
+          </p>
+        </div>
+      )}
 
       {/* Shot number badge */}
       <div className="mt-2 flex justify-center">

@@ -3,7 +3,6 @@
 import { useState, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import type { ActiveRound, ActiveHole, TeeColor } from '@/types'
-import { haversineYards } from '@/lib/sg-tables'
 import CourseSearchModal from './CourseSearchModal'
 import TeePickerModal from './TeePickerModal'
 import ShotPanel from './ShotPanel'
@@ -12,9 +11,8 @@ import LiveStatsStrip from './LiveStatsStrip'
 
 const SatelliteMap = dynamic(() => import('./SatelliteMap'), { ssr: false })
 
-export type PlayStep = 'idle' | 'set-start' | 'set-end' | 'log-shot'
+export type PlayStep = 'idle' | 'set-flag' | 'set-start' | 'set-end' | 'log-shot'
 
-// Extended course result that includes the par array and base rating/slope
 interface FullCourse {
   id: string
   name: string
@@ -36,6 +34,7 @@ export default function PlayClient() {
   const [layerSatellite, setLayerSatellite]     = useState(true)
   const [pendingStart, setPendingStart]         = useState<[number, number] | null>(null)
   const [pendingEnd, setPendingEnd]             = useState<[number, number] | null>(null)
+  const [mapCenter, setMapCenter]               = useState<[number, number]>([39.5, -98.35])
 
   const handleCourseSelect = useCallback((course: FullCourse) => {
     setSelectedCourse(course)
@@ -54,7 +53,6 @@ export default function PlayClient() {
       courseRating: rating,
       slopeRating:  slope,
       date: new Date().toISOString().split('T')[0],
-      // Build holes using the course's actual par array (18 holes)
       holes: selectedCourse.par.slice(0, 18).map((par, i) => ({
         holeNumber: i + 1,
         par,
@@ -67,8 +65,30 @@ export default function PlayClient() {
     }
     setActiveRound(round)
     setShowTeePicker(false)
-    setStep('set-start')
+    setStep('set-flag') // Start by placing the flag on hole 1
   }, [selectedCourse])
+
+  // Called when user presses the confirm button — places point at current map center
+  const handleConfirm = useCallback(() => {
+    if (step === 'set-flag') {
+      if (!activeRound) return
+      const updated = { ...activeRound }
+      updated.holes = [...activeRound.holes]
+      updated.holes[activeRound.currentHole - 1] = {
+        ...updated.holes[activeRound.currentHole - 1],
+        flagLat: mapCenter[0],
+        flagLng: mapCenter[1],
+      }
+      setActiveRound(updated)
+      setStep('set-start')
+    } else if (step === 'set-start') {
+      setPendingStart(mapCenter)
+      setStep('set-end')
+    } else if (step === 'set-end') {
+      setPendingEnd(mapCenter)
+      setStep('log-shot')
+    }
+  }, [step, mapCenter, activeRound])
 
   const currentHole: ActiveHole | null = activeRound
     ? activeRound.holes[activeRound.currentHole - 1]
@@ -85,52 +105,17 @@ export default function PlayClient() {
         pendingStart={pendingStart}
         pendingEnd={pendingEnd}
         activeRound={activeRound}
-        onMapTap={(lat, lng) => {
-          if (step === 'set-start') {
-            setPendingStart([lat, lng])
-            setStep('set-end')
-          } else if (step === 'set-end') {
-            setPendingEnd([lat, lng])
-            setStep('log-shot')
-          }
-        }}
-        onSetFlag={(lat, lng) => {
-          if (!activeRound) return
-          const updated = { ...activeRound }
-          updated.holes = [...activeRound.holes]
-          updated.holes[activeRound.currentHole - 1] = {
-            ...updated.holes[activeRound.currentHole - 1],
-            flagLat: lat,
-            flagLng: lng,
-          }
-          setActiveRound(updated)
-        }}
+        onCenterChange={setMapCenter}
       />
 
-      {/* Crosshair overlay — shown when selecting start or end */}
-      {(step === 'set-start' || step === 'set-end') && (
+      {/* Crosshair — shown when placing flag, tee, or target */}
+      {(step === 'set-flag' || step === 'set-start' || step === 'set-end') && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
           <div className="relative flex items-center justify-center">
-            {/* Horizontal line */}
-            <div className="absolute h-px w-16 bg-white opacity-90" />
-            {/* Vertical line */}
-            <div className="absolute h-16 w-px bg-white opacity-90" />
-            {/* Center dot */}
-            <div className="absolute h-3 w-3 rounded-full border-2 border-white bg-transparent" />
+            <div className="absolute h-px w-20 bg-white opacity-90" style={{ boxShadow: '0 0 4px rgba(0,0,0,0.8)' }} />
+            <div className="absolute h-20 w-px bg-white opacity-90" style={{ boxShadow: '0 0 4px rgba(0,0,0,0.8)' }} />
+            <div className="absolute h-4 w-4 rounded-full border-2 border-white bg-transparent" style={{ boxShadow: '0 0 4px rgba(0,0,0,0.8)' }} />
           </div>
-        </div>
-      )}
-
-      {/* Large distance overlay — shown when tapping end point */}
-      {step === 'set-end' && pendingStart && currentHole?.flagLat && currentHole?.flagLng && (
-        <div className="pointer-events-none absolute inset-x-0 top-1/3 z-20 flex flex-col items-center gap-1">
-          <p className="text-5xl font-bold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
-            {Math.round(haversineYards(
-              pendingStart[0], pendingStart[1],
-              currentHole.flagLat, currentHole.flagLng
-            ))} yd
-          </p>
-          <p className="text-sm font-medium text-white/70 drop-shadow">to hole</p>
         </div>
       )}
 
@@ -141,23 +126,21 @@ export default function PlayClient() {
           hole={currentHole}
           step={step}
           pendingStart={pendingStart}
-          pendingEnd={pendingEnd}
+          mapCenter={mapCenter}
+          onConfirm={handleConfirm}
           onPrevHole={() => {
             if (activeRound.currentHole > 1) {
               setActiveRound(r => r ? { ...r, currentHole: r.currentHole - 1 } : r)
               setPendingStart(null); setPendingEnd(null)
-              setStep('set-start')
+              setStep('set-flag')
             }
           }}
           onNextHole={() => {
             if (activeRound.currentHole < activeRound.holes.length) {
               setActiveRound(r => r ? { ...r, currentHole: r.currentHole + 1 } : r)
               setPendingStart(null); setPendingEnd(null)
-              setStep('set-start')
+              setStep('set-flag')
             }
-          }}
-          onConfirm={() => {
-            if (step === 'set-end' && pendingStart) setStep('log-shot')
           }}
         />
       )}
@@ -191,11 +174,26 @@ export default function PlayClient() {
               ...currentHole,
               shots: [...currentHole.shots, shot],
             }
-            setActiveRound(updated)
-            // Auto-chain: next shot starts from previous landing
-            setPendingStart(pendingEnd)
-            setPendingEnd(null)
-            setStep('set-end')
+
+            if (shot.isHoled) {
+              // Advance to next hole automatically
+              if (activeRound.currentHole < activeRound.holes.length) {
+                updated.currentHole = activeRound.currentHole + 1
+                setActiveRound(updated)
+                setPendingStart(null)
+                setPendingEnd(null)
+                setStep('set-flag') // Start next hole with flag placement
+              } else {
+                setActiveRound(updated)
+                setStep('idle') // Round complete
+              }
+            } else {
+              setActiveRound(updated)
+              // Auto-chain: next shot starts from previous landing
+              setPendingStart(pendingEnd)
+              setPendingEnd(null)
+              setStep('set-end')
+            }
           }}
           onCancel={() => {
             setPendingEnd(null)

@@ -29,14 +29,13 @@ interface Props {
   pendingStart: [number, number] | null
   pendingEnd: [number, number] | null
   activeRound: ActiveRound | null
-  onMapTap: (lat: number, lng: number) => void
-  onSetFlag: (lat: number, lng: number) => void
+  onCenterChange: (lat: number, lng: number) => void
 }
 
 export default function SatelliteMap({
   center, zoom, satellite, step,
   pendingStart, pendingEnd, activeRound,
-  onMapTap, onSetFlag,
+  onCenterChange,
 }: Props) {
   const containerRef   = useRef<HTMLDivElement>(null)
   const mapRef         = useRef<LeafletMap | null>(null)
@@ -89,10 +88,13 @@ export default function SatelliteMap({
       osmRef.current       = osmLayer
       mapRef.current       = map
 
-      // Tap handler
-      map.on('click', (e) => {
-        onMapTap(e.latlng.lat, e.latlng.lng)
+      // Fire center coords whenever map moves (for live distance display)
+      map.on('move', () => {
+        const c = map.getCenter()
+        onCenterChange(c.lat, c.lng)
       })
+      // Fire once on init
+      onCenterChange(center[0], center[1])
     }
 
     init()

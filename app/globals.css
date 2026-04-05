@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Leaflet CSS — must be imported globally for SSR to work */
+@import 'leaflet/dist/leaflet.css';
+
+:root {
+  --bg: #07100a;
+  --surface: #0d1a0f;
+  --surface-2: #152018;
+  --accent: #4ade80;
+  --gold: #f59e0b;
+  --red: #f87171;
+  --border: #1f3324;
+  --muted: #4b7a55;
+  --text: #e2f0e8;
+  --text-dim: #8aaa92;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* Fix Leaflet z-index conflicts with our UI */
+.leaflet-pane        { z-index: 10; }
+.leaflet-control     { z-index: 20; }
+.leaflet-top,
+.leaflet-bottom      { z-index: 20; }
+
+/* Pulsing shot marker */
+@keyframes ping-slow {
+  0%   { transform: scale(1); opacity: 1; }
+  75%  { transform: scale(2.5); opacity: 0; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+.shot-marker-pulse::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: ping-slow 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+  background: #3b82f6;
+}
+
+/* Bottom safe area padding for iOS notch */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }

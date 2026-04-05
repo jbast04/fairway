@@ -35,6 +35,8 @@ export default function PlayClient() {
   const [pendingStart, setPendingStart]         = useState<[number, number] | null>(null)
   const [pendingEnd, setPendingEnd]             = useState<[number, number] | null>(null)
   const [mapCenter, setMapCenter]               = useState<[number, number]>([39.5, -98.35])
+  const [flyToLocation, setFlyToLocation]       = useState<[number, number] | null>(null)
+  const [locating, setLocating]                 = useState(false)
 
   const handleCourseSelect = useCallback((course: FullCourse) => {
     setSelectedCourse(course)
@@ -67,6 +69,19 @@ export default function PlayClient() {
     setShowTeePicker(false)
     setStep('set-flag') // Start by placing the flag on hole 1
   }, [selectedCourse])
+
+  const handleMyLocation = useCallback(() => {
+    if (!navigator.geolocation) return
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setFlyToLocation([pos.coords.latitude, pos.coords.longitude])
+        setLocating(false)
+      },
+      () => setLocating(false),
+      { enableHighAccuracy: true, timeout: 10000 },
+    )
+  }, [])
 
   // Called when user presses the confirm button — places point at current map center
   const handleConfirm = useCallback(() => {
@@ -105,6 +120,7 @@ export default function PlayClient() {
         pendingStart={pendingStart}
         pendingEnd={pendingEnd}
         activeRound={activeRound}
+        flyToLocation={flyToLocation}
         onCenterChange={setMapCenter}
       />
 
@@ -152,6 +168,9 @@ export default function PlayClient() {
         </FloatBtn>
         <FloatBtn title={layerSatellite ? 'Street Map' : 'Satellite'} onClick={() => setLayerSatellite(l => !l)}>
           {layerSatellite ? '🗺' : '🛰'}
+        </FloatBtn>
+        <FloatBtn title="My Location" onClick={handleMyLocation}>
+          {locating ? '⏳' : '📍'}
         </FloatBtn>
       </div>
 

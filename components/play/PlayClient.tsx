@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import type { ActiveRound, ActiveHole, TeeColor } from '@/types'
+import { haversineYards } from '@/lib/sg-tables'
 import CourseSearchModal from './CourseSearchModal'
 import TeePickerModal from './TeePickerModal'
 import ShotPanel from './ShotPanel'
@@ -78,7 +79,7 @@ export default function PlayClient() {
       {/* Full-screen map */}
       <SatelliteMap
         center={selectedCourse ? [selectedCourse.lat, selectedCourse.lng] : [39.5, -98.35]}
-        zoom={selectedCourse ? 17 : 4}
+        zoom={activeRound ? 19 : selectedCourse ? 17 : 4}
         satellite={layerSatellite}
         step={step}
         pendingStart={pendingStart}
@@ -105,6 +106,33 @@ export default function PlayClient() {
           setActiveRound(updated)
         }}
       />
+
+      {/* Crosshair overlay — shown when selecting start or end */}
+      {(step === 'set-start' || step === 'set-end') && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <div className="relative flex items-center justify-center">
+            {/* Horizontal line */}
+            <div className="absolute h-px w-16 bg-white opacity-90" />
+            {/* Vertical line */}
+            <div className="absolute h-16 w-px bg-white opacity-90" />
+            {/* Center dot */}
+            <div className="absolute h-3 w-3 rounded-full border-2 border-white bg-transparent" />
+          </div>
+        </div>
+      )}
+
+      {/* Large distance overlay — shown when tapping end point */}
+      {step === 'set-end' && pendingStart && currentHole?.flagLat && currentHole?.flagLng && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/3 z-20 flex flex-col items-center gap-1">
+          <p className="text-5xl font-bold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+            {Math.round(haversineYards(
+              pendingStart[0], pendingStart[1],
+              currentHole.flagLat, currentHole.flagLng
+            ))} yd
+          </p>
+          <p className="text-sm font-medium text-white/70 drop-shadow">to hole</p>
+        </div>
+      )}
 
       {/* HUD overlay */}
       {activeRound && currentHole && (

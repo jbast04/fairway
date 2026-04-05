@@ -30,12 +30,13 @@ interface Props {
   activeRound: ActiveRound | null
   flyToLocation: [number, number] | null
   onCenterChange: (lat: number, lng: number) => void
+  onMapTap: (lat: number, lng: number) => void
 }
 
 export default function SatelliteMap({
   center, zoom, satellite, step,
   pendingStart, pendingEnd, activeRound,
-  flyToLocation, onCenterChange,
+  flyToLocation, onCenterChange, onMapTap,
 }: Props) {
   const containerRef    = useRef<HTMLDivElement>(null)
   const mapRef          = useRef<LeafletMap | null>(null)
@@ -79,6 +80,9 @@ export default function SatelliteMap({
       map.on('move', () => {
         const c = map.getCenter()
         onCenterChange(c.lat, c.lng)
+      })
+      map.on('click', (e) => {
+        onMapTap(e.latlng.lat, e.latlng.lng)
       })
       onCenterChange(center[0], center[1])
     }

@@ -78,32 +78,36 @@ export default function PlayClient() {
         setFlyToLocation([pos.coords.latitude, pos.coords.longitude])
         setLocating(false)
       },
-      () => setLocating(false),
+      () => { setLocating(false); alert('Location access denied. Please allow location in your browser settings.') },
       { enableHighAccuracy: true, timeout: 10000 },
     )
   }, [])
 
-  // Called when user presses the confirm button — places point at current map center
-  const handleConfirm = useCallback(() => {
+  // Place a point at given coords — used by both map tap and confirm button
+  const placePoint = useCallback((lat: number, lng: number) => {
     if (step === 'set-flag') {
       if (!activeRound) return
       const updated = { ...activeRound }
       updated.holes = [...activeRound.holes]
       updated.holes[activeRound.currentHole - 1] = {
         ...updated.holes[activeRound.currentHole - 1],
-        flagLat: mapCenter[0],
-        flagLng: mapCenter[1],
+        flagLat: lat,
+        flagLng: lng,
       }
       setActiveRound(updated)
       setStep('set-start')
     } else if (step === 'set-start') {
-      setPendingStart(mapCenter)
+      setPendingStart([lat, lng])
       setStep('set-end')
     } else if (step === 'set-end') {
-      setPendingEnd(mapCenter)
+      setPendingEnd([lat, lng])
       setStep('log-shot')
     }
-  }, [step, mapCenter, activeRound])
+  }, [step, activeRound])
+
+  const handleConfirm = useCallback(() => {
+    placePoint(mapCenter[0], mapCenter[1])
+  }, [placePoint, mapCenter])
 
   const currentHole: ActiveHole | null = activeRound
     ? activeRound.holes[activeRound.currentHole - 1]
@@ -122,6 +126,7 @@ export default function PlayClient() {
         activeRound={activeRound}
         flyToLocation={flyToLocation}
         onCenterChange={setMapCenter}
+        onMapTap={placePoint}
       />
 
       {/* Crosshair — shown when placing flag, tee, or target */}

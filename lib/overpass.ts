@@ -1,13 +1,17 @@
 /**
- * Fetch green coordinates from OpenStreetMap (Overpass API).
+ * Fetch putting-green coordinates from OpenStreetMap (Overpass API).
  *
  * Strategy:
- *  1. Find the specific golf course polygon at the given lat/lng using map_to_area.
- *  2. Query for `golf=hole` ways INSIDE that polygon.
- *  3. Request full geometry (`out geom`) so we get every node of each way.
- *  4. OSM convention: hole ways are drawn tee → green, so the LAST node is the
- *     green end. We use that as the fly-to target so the map lands on the green,
- *     not mid-fairway.
+ *  1. Find the specific golf course polygon at the given lat/lng (300 m radius,
+ *     map_to_area so we never bleed into adjacent courses like Cypress Point).
+ *  2. Query BOTH:
+ *       a) way["golf"="green"] — the actual putting-green polygons (most accurate)
+ *       b) way["golf"="hole"]  — fallback for courses without mapped greens
+ *  3. For each hole number, prefer the green-polygon centroid; fall back to the
+ *     hole-way centroid if no green polygon is found for that number.
+ *
+ * This avoids the "which end is the green?" ambiguity of hole ways, which are
+ * drawn in both directions by different OSM contributors.
  *
  * Falls back to an empty array on any error or if the course isn't in OSM.
  */
@@ -22,11 +26,15 @@ export async function fetchHoleCoords(
   courseLat: number,
   courseLng: number,
 ): Promise<HoleCoords[]> {
+  // Fetch green polygons (accurate) AND hole ways (fallback) in one request
   const query = `[out:json][timeout:30];
 relation["leisure"="golf_course"](around:300,${courseLat},${courseLng})->.r;
 .r map_to_area ->.a;
-way["golf"="hole"](area.a);
-out geom tags;`
+(
+  way["golf"="green"]["ref"](area.a);
+  way["golf"="hole"](area.a);
+);
+out center tags;`
 
   try {
     const res = await fetch('https://overpass-api.de/api/interpreter', {
@@ -41,24 +49,33 @@ out geom tags;`
     if (!text.trim().startsWith('{')) return []
 
     const data = JSON.parse(text)
-    const coords: HoleCoords[] = []
+
+    // Separate greens (accurate) from hole ways (fallback)
+    const greenCoords = new Map<number, HoleCoords>()
+    const holeCoords  = new Map<number, HoleCoords>()
 
     for (const el of data.elements ?? []) {
       const holeNum = parseInt(el.tags?.ref ?? '', 10)
       if (isNaN(holeNum) || holeNum < 1 || holeNum > 18) continue
+      const lat = el.center?.lat
+      const lng = el.center?.lon
+      if (lat == null || lng == null) continue
 
-      // Full node list — last node is the green end (OSM tee→green convention)
-      const nodes: { lat: number; lon: number }[] = el.geometry ?? []
-      if (nodes.length === 0) continue
-      const greenNode = nodes[nodes.length - 1]
-
-      // Deduplicate — keep first match per hole number
-      if (!coords.find(c => c.holeNumber === holeNum)) {
-        coords.push({ holeNumber: holeNum, lat: greenNode.lat, lng: greenNode.lon })
+      if (el.tags?.golf === 'green' && !greenCoords.has(holeNum)) {
+        greenCoords.set(holeNum, { holeNumber: holeNum, lat, lng })
+      } else if (el.tags?.golf === 'hole' && !holeCoords.has(holeNum)) {
+        holeCoords.set(holeNum, { holeNumber: holeNum, lat, lng })
       }
     }
 
-    return coords.sort((a, b) => a.holeNumber - b.holeNumber)
+    // Merge: prefer green polygon; fall back to hole way center
+    const result: HoleCoords[] = []
+    for (let i = 1; i <= 18; i++) {
+      const coord = greenCoords.get(i) ?? holeCoords.get(i)
+      if (coord) result.push(coord)
+    }
+
+    return result
   } catch {
     return []
   }

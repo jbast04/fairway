@@ -2,18 +2,18 @@
  * Fetch putting-green coordinates from OpenStreetMap (Overpass API).
  *
  * Strategy:
- *  1. Find the specific golf course polygon at the given lat/lng (300 m radius,
- *     map_to_area so we never bleed into adjacent courses like Cypress Point).
- *  2. Query BOTH:
- *       a) way["golf"="green"] — the actual putting-green polygons (most accurate)
- *       b) way["golf"="hole"]  — fallback for courses without mapped greens
- *  3. For each hole number, prefer the green-polygon centroid; fall back to the
- *     hole-way centroid if no green polygon is found for that number.
+ *  1. Find the specific golf course polygon (map_to_area, 300 m radius).
+ *  2. Fetch full geometry for both:
+ *       a) way["golf"="green"] — actual putting-green polygons
+ *       b) way["golf"="hole"]  — hole lines (tee → green or green → tee)
+ *  3. Compute each green polygon's centroid from its node list.
+ *  4. For each golf=hole way:
+ *       - If a golf=green with a matching ref tag exists → use its centroid.
+ *       - Otherwise examine BOTH endpoints of the hole way and pick whichever
+ *         is nearest to ANY green polygon centroid — that end is the green.
+ *  5. Fall back to hole-way centroid only if no greens exist at all.
  *
- * This avoids the "which end is the green?" ambiguity of hole ways, which are
- * drawn in both directions by different OSM contributors.
- *
- * Falls back to an empty array on any error or if the course isn't in OSM.
+ * This works even when green polygons have no ref tag (like Pebble Beach).
  */
 
 export interface HoleCoords {
@@ -22,19 +22,35 @@ export interface HoleCoords {
   lng: number
 }
 
+// Haversine distance in metres (fast, no imports needed here)
+function distM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000
+  const p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180
+  const dp = (lat2 - lat1) * Math.PI / 180, dl = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+// Average lat/lng of a node list
+function centroid(nodes: { lat: number; lon: number }[]): { lat: number; lng: number } | null {
+  if (!nodes.length) return null
+  const lat = nodes.reduce((s, n) => s + n.lat, 0) / nodes.length
+  const lng = nodes.reduce((s, n) => s + n.lon, 0) / nodes.length
+  return { lat, lng }
+}
+
 export async function fetchHoleCoords(
   courseLat: number,
   courseLng: number,
 ): Promise<HoleCoords[]> {
-  // Fetch green polygons (accurate) AND hole ways (fallback) in one request
   const query = `[out:json][timeout:30];
 relation["leisure"="golf_course"](around:300,${courseLat},${courseLng})->.r;
 .r map_to_area ->.a;
 (
-  way["golf"="green"]["ref"](area.a);
+  way["golf"="green"](area.a);
   way["golf"="hole"](area.a);
 );
-out center tags;`
+out geom tags;`
 
   try {
     const res = await fetch('https://overpass-api.de/api/interpreter', {
@@ -44,38 +60,76 @@ out center tags;`
       signal: AbortSignal.timeout(35000),
     })
     if (!res.ok) return []
-
     const text = await res.text()
     if (!text.trim().startsWith('{')) return []
-
     const data = JSON.parse(text)
 
-    // Separate greens (accurate) from hole ways (fallback)
-    const greenCoords = new Map<number, HoleCoords>()
-    const holeCoords  = new Map<number, HoleCoords>()
+    // --- Separate greens and holes ---
+    type GreenInfo = { ref: number | null; lat: number; lng: number }
+    const greenList: GreenInfo[] = []
+
+    type HoleInfo = {
+      holeNumber: number
+      nodes: { lat: number; lon: number }[]
+    }
+    const holeList: HoleInfo[] = []
 
     for (const el of data.elements ?? []) {
-      const holeNum = parseInt(el.tags?.ref ?? '', 10)
-      if (isNaN(holeNum) || holeNum < 1 || holeNum > 18) continue
-      const lat = el.center?.lat
-      const lng = el.center?.lon
-      if (lat == null || lng == null) continue
+      const nodes: { lat: number; lon: number }[] = el.geometry ?? []
+      if (!nodes.length) continue
 
-      if (el.tags?.golf === 'green' && !greenCoords.has(holeNum)) {
-        greenCoords.set(holeNum, { holeNumber: holeNum, lat, lng })
-      } else if (el.tags?.golf === 'hole' && !holeCoords.has(holeNum)) {
-        holeCoords.set(holeNum, { holeNumber: holeNum, lat, lng })
+      if (el.tags?.golf === 'green') {
+        const c = centroid(nodes)
+        if (!c) continue
+        const ref = parseInt(el.tags?.ref ?? '', 10)
+        greenList.push({ ref: isNaN(ref) ? null : ref, lat: c.lat, lng: c.lng })
+
+      } else if (el.tags?.golf === 'hole') {
+        const holeNum = parseInt(el.tags?.ref ?? '', 10)
+        if (isNaN(holeNum) || holeNum < 1 || holeNum > 18) continue
+        holeList.push({ holeNumber: holeNum, nodes })
       }
     }
 
-    // Merge: prefer green polygon; fall back to hole way center
+    // --- Resolve green coordinates for each hole ---
     const result: HoleCoords[] = []
-    for (let i = 1; i <= 18; i++) {
-      const coord = greenCoords.get(i) ?? holeCoords.get(i)
-      if (coord) result.push(coord)
+
+    for (const hole of holeList) {
+      // Already found this hole number?
+      if (result.find(r => r.holeNumber === hole.holeNumber)) continue
+
+      // 1) Exact ref match on a green polygon
+      const exactGreen = greenList.find(g => g.ref === hole.holeNumber)
+      if (exactGreen) {
+        result.push({ holeNumber: hole.holeNumber, lat: exactGreen.lat, lng: exactGreen.lng })
+        continue
+      }
+
+      // 2) Match by proximity: check both endpoints of the hole way against all greens
+      if (greenList.length > 0) {
+        const first = hole.nodes[0]
+        const last  = hole.nodes[hole.nodes.length - 1]
+
+        let bestEndpoint = first
+        let bestDist = Infinity
+
+        for (const g of greenList) {
+          const dFirst = distM(first.lat, first.lon, g.lat, g.lng)
+          const dLast  = distM(last.lat,  last.lon,  g.lat, g.lng)
+          if (dFirst < bestDist) { bestDist = dFirst; bestEndpoint = first }
+          if (dLast  < bestDist) { bestDist = dLast;  bestEndpoint = last  }
+        }
+
+        result.push({ holeNumber: hole.holeNumber, lat: bestEndpoint.lat, lng: bestEndpoint.lon })
+        continue
+      }
+
+      // 3) No green polygons at all — fall back to hole way centroid
+      const c = centroid(hole.nodes)
+      if (c) result.push({ holeNumber: hole.holeNumber, lat: c.lat, lng: c.lng })
     }
 
-    return result
+    return result.sort((a, b) => a.holeNumber - b.holeNumber)
   } catch {
     return []
   }

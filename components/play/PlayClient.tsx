@@ -98,17 +98,45 @@ export default function PlayClient() {
     setShowTeePicker(false)
     setStep('set-flag') // Start by placing the flag on hole 1
 
-    // Fetch hole GPS coordinates from OpenStreetMap in the background.
-    // Reset flyToLocation first so the useEffect always fires even if hole 1
-    // coords happen to equal a previous flyToLocation value.
+    // ── Load previously saved flags from localStorage (instant, no network) ──
+    // Every time the user places a flag it is saved keyed by courseId+holeNumber.
+    // On subsequent rounds at the same course these load immediately so the map
+    // flies to the correct green before Overpass even responds.
     setFlyToLocation(null)
-    setHoleCoords([])
+    const savedCoords: import('@/lib/overpass').HoleCoords[] = []
+    try {
+      for (let h = 1; h <= 18; h++) {
+        const raw = localStorage.getItem(`fw_flag_${selectedCourse.id}_${h}`)
+        if (raw) {
+          const { lat, lng } = JSON.parse(raw)
+          savedCoords.push({ holeNumber: h, lat, lng })
+        }
+      }
+    } catch { /* ignore */ }
+
+    if (savedCoords.length > 0) {
+      setHoleCoords(savedCoords)
+      const h1 = savedCoords.find(c => c.holeNumber === 1)
+      if (h1) setFlyToLocation([h1.lat, h1.lng])
+    } else {
+      setHoleCoords([])
+    }
+
+    // Also fetch from Overpass in background — fills in any holes not yet saved
     fetchHoleCoords(selectedCourse.lat, selectedCourse.lng).then(coords => {
       if (coords.length > 0) {
-        setHoleCoords(coords)
-        // Immediately fly to hole 1 — the useEffect below handles subsequent holes.
-        const h1 = coords.find(c => c.holeNumber === 1)
-        if (h1) setFlyToLocation([h1.lat, h1.lng])
+        // Merge: prefer saved user flags over OSM data (more accurate)
+        setHoleCoords(prev => {
+          const merged = [...coords]
+          prev.forEach(s => {
+            if (!merged.find(m => m.holeNumber === s.holeNumber)) merged.push(s)
+          })
+          return merged.sort((a, b) => a.holeNumber - b.holeNumber)
+        })
+        if (savedCoords.length === 0) {
+          const h1 = coords.find(c => c.holeNumber === 1)
+          if (h1) setFlyToLocation([h1.lat, h1.lng])
+        }
       }
     })
   }, [selectedCourse])
@@ -326,6 +354,13 @@ export default function PlayClient() {
         flagLng: lng,
       }
       setActiveRound(updated)
+
+      // Persist this flag so future rounds at the same course auto-fly correctly
+      try {
+        const key = `fw_flag_${activeRound.courseId}_${activeRound.currentHole}`
+        localStorage.setItem(key, JSON.stringify({ lat, lng }))
+      } catch { /* ignore */ }
+
       setStep('set-start')
     } else if (step === 'set-start') {
       setPendingStart([lat, lng])

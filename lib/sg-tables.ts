@@ -238,22 +238,32 @@ function expStrokes(distYards: number, lie: string, tables: SGTables): number {
 // distBefore:  yards to flag from shot start
 // distAfter:   yards to flag from landing (0 if holed)
 // lieStart:    lie at start of shot
+// endLie:      lie where ball came to rest (null = holed)
+//              Used to compute the correct "after" expected strokes.
+//              Penalty end lie falls back to rough (still in-bounds drop zone).
 // benchmark:   which HCP level to use as baseline (default '10hcp')
-//
-// NOTE: The "after" expected strokes always uses the fairway table
-// from the same benchmark — consistent with standard SG methodology.
 // ============================================================
 export function calcShotSG(
   distBefore: number,
   distAfter: number,
   lieStart: Lie,
+  endLie: Lie | null = null,
   benchmark: BenchmarkKey = '10hcp',
 ): number {
   if (lieStart === 'penalty') return -1
 
   const tables = BENCHMARK_TABLES[benchmark] ?? HCP10
   const before = expStrokes(distBefore, lieStart, tables)
-  const after  = distAfter <= 0 ? 0 : lerpTable(tables.fw, distAfter)
+
+  let after = 0
+  if (distAfter > 0) {
+    // Use the actual end lie so rough/sand/penalty landings correctly
+    // show worse SG than equivalent-distance fairway landings.
+    // Penalty end lie treated as rough (player will re-drop near that distance).
+    const afterLie = !endLie || endLie === 'penalty' ? 'fairway' : endLie
+    after = expStrokes(distAfter, afterLie, tables)
+  }
+
   return parseFloat((before - after - 1).toFixed(3))
 }
 

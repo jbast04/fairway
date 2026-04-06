@@ -78,11 +78,12 @@ export default function ShotPanel({ round, hole, startCoords, targetCoords, endC
     ? haversineYards(endCoords[0], endCoords[1], hole.flagLat, hole.flagLng)
     : null)
 
-  // SG calculation
+  // SG calculation — pass actual endLie so rough/sand/penalty landings
+  // correctly reduce SG vs a fairway landing at the same distance
   let sg: number | null = null
   if (distToFlagBefore !== null) {
     const afterDist = isHoled ? 0 : (distToFlagAfter ?? 0)
-    sg = calcShotSG(distToFlagBefore, afterDist, startLie, benchmark)
+    sg = calcShotSG(distToFlagBefore, afterDist, startLie, isHoled ? null : endLie, benchmark)
   }
 
   const category = sgCategory(startLie, shotNumber, hole.par)

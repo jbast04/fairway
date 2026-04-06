@@ -44,6 +44,18 @@ html, body {
 .leaflet-top,
 .leaflet-bottom      { z-index: 20; }
 
+/* Force Leaflet container to receive pointer events */
+.leaflet-container {
+  touch-action: none !important;
+  user-select: none !important;
+}
+
+/* Override leaflet-touch-drag interference */
+.leaflet-touch-drag .leaflet-interactive,
+.leaflet-touch-drag {
+  touch-action: none !important;
+}
+
 /* Pulsing shot marker */
 @keyframes ping-slow {
   0%   { transform: scale(1); opacity: 1; }

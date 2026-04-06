@@ -65,9 +65,10 @@ export default function SatelliteMap({
         attributionControl: false,
         dragging: true,
         scrollWheelZoom: true,
-        touchZoom: true,
         doubleClickZoom: true,
-        tap: true,
+        touchZoom: false,
+        tap: false,
+        boxZoom: false,
       })
 
       const satLayer   = L.tileLayer(ESRI_SATELLITE, { maxZoom: 20 })
@@ -245,7 +246,7 @@ export default function SatelliteMap({
     <div
       ref={containerRef}
       className="absolute inset-0 z-0"
-      style={{ cursor: step === 'idle' ? 'default' : 'grab' }}
+      style={{ cursor: step === 'idle' ? 'default' : 'grab', touchAction: 'none' }}
     />
   )
 }

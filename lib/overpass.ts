@@ -87,10 +87,10 @@ export async function fetchHoleCoords(
 
   // Use a simple around-radius query — no map_to_area needed and much faster.
   // 1000 m covers all 18 holes of most courses without bleeding into neighbours.
-  const query = `[out:json][timeout:20];
+  const query = `[out:json][timeout:30];
 (
-  way["golf"="green"](around:1000,${courseLat},${courseLng});
-  way["golf"="hole"](around:1000,${courseLat},${courseLng});
+  way["golf"="green"](around:3000,${courseLat},${courseLng});
+  way["golf"="hole"](around:3000,${courseLat},${courseLng});
 );
 out geom tags;`
 

@@ -104,14 +104,14 @@ const OSM_GOLF_TAG_MAP: Record<string, PolygonType> = {
 
 function buildQuery(lat: number, lng: number): string {
   return `
-[out:json][timeout:30];
+[out:json][timeout:40];
 (
-  way["golf"="fairway"](around:1500,${lat},${lng});
-  way["golf"="bunker"](around:1500,${lat},${lng});
-  way["golf"="water_hazard"](around:1500,${lat},${lng});
-  way["golf"="rough"](around:1500,${lat},${lng});
-  way["golf"="green"](around:1500,${lat},${lng});
-  way["golf"="tee"](around:1500,${lat},${lng});
+  way["golf"="fairway"](around:3000,${lat},${lng});
+  way["golf"="bunker"](around:3000,${lat},${lng});
+  way["golf"="water_hazard"](around:3000,${lat},${lng});
+  way["golf"="rough"](around:3000,${lat},${lng});
+  way["golf"="green"](around:3000,${lat},${lng});
+  way["golf"="tee"](around:3000,${lat},${lng});
 );
 out geom;
   `.trim()

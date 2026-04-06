@@ -85,12 +85,12 @@ export async function fetchHoleCoords(
     }
   } catch { /* ignore */ }
 
-  const query = `[out:json][timeout:25];
-relation["leisure"="golf_course"](around:300,${courseLat},${courseLng})->.r;
-.r map_to_area ->.a;
+  // Use a simple around-radius query — no map_to_area needed and much faster.
+  // 1000 m covers all 18 holes of most courses without bleeding into neighbours.
+  const query = `[out:json][timeout:20];
 (
-  way["golf"="green"](area.a);
-  way["golf"="hole"](area.a);
+  way["golf"="green"](around:1000,${courseLat},${courseLng});
+  way["golf"="hole"](around:1000,${courseLat},${courseLng});
 );
 out geom tags;`
 

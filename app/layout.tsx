@@ -26,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="bg-bg text-text antialiased">
         {/* Main content sits above the bottom nav */}
-        <main className="pb-[calc(4rem+env(safe-area-inset-bottom,0px))]">
+        <main className="pb-[calc(4rem+env(safe-area-inset-bottom,0px))] overflow-hidden">
           {children}
         </main>
         <BottomNav />

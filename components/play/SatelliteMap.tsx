@@ -245,7 +245,7 @@ export default function SatelliteMap({
     <div
       ref={containerRef}
       className="absolute inset-0 z-0"
-      style={{ cursor: step === 'idle' ? 'default' : 'grab', touchAction: 'none' }}
+      style={{ cursor: step === 'idle' ? 'default' : 'grab' }}
     />
   )
 }

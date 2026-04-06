@@ -1,14 +1,14 @@
 /**
- * Fetch hole-center coordinates from OpenStreetMap (Overpass API).
+ * Fetch green coordinates from OpenStreetMap (Overpass API).
  *
  * Strategy:
  *  1. Find the specific golf course polygon at the given lat/lng using map_to_area.
- *  2. Query for `golf=hole` ways INSIDE that polygon — these always carry a `ref`
- *     tag (hole number 1–18) and are guaranteed to belong to this course only.
- *  3. Return the center of each hole way, sorted by hole number.
+ *  2. Query for `golf=hole` ways INSIDE that polygon.
+ *  3. Request full geometry (`out geom`) so we get every node of each way.
+ *  4. OSM convention: hole ways are drawn tee → green, so the LAST node is the
+ *     green end. We use that as the fly-to target so the map lands on the green,
+ *     not mid-fairway.
  *
- * The center of a `golf=hole` way sits roughly mid-fairway between tee and green,
- * which is close enough for auto-zooming — the green is always within view.
  * Falls back to an empty array on any error or if the course isn't in OSM.
  */
 
@@ -22,15 +22,11 @@ export async function fetchHoleCoords(
   courseLat: number,
   courseLng: number,
 ): Promise<HoleCoords[]> {
-  // Step 1: find the golf-course relation at these coordinates (tight 300 m radius
-  //         so we never bleed into an adjacent course like Cypress Point).
-  // Step 2: convert that relation to an Overpass area.
-  // Step 3: find all golf=hole ways inside that area — they carry `ref` = hole number.
   const query = `[out:json][timeout:30];
 relation["leisure"="golf_course"](around:300,${courseLat},${courseLng})->.r;
 .r map_to_area ->.a;
 way["golf"="hole"](area.a);
-out center tags;`
+out geom tags;`
 
   try {
     const res = await fetch('https://overpass-api.de/api/interpreter', {
@@ -42,7 +38,6 @@ out center tags;`
     if (!res.ok) return []
 
     const text = await res.text()
-    // Overpass sometimes returns an HTML error page instead of JSON
     if (!text.trim().startsWith('{')) return []
 
     const data = JSON.parse(text)
@@ -52,14 +47,14 @@ out center tags;`
       const holeNum = parseInt(el.tags?.ref ?? '', 10)
       if (isNaN(holeNum) || holeNum < 1 || holeNum > 18) continue
 
-      // `out center` gives us the centroid of each way
-      const lat = el.center?.lat
-      const lng = el.center?.lon
-      if (lat == null || lng == null) continue
+      // Full node list — last node is the green end (OSM tee→green convention)
+      const nodes: { lat: number; lon: number }[] = el.geometry ?? []
+      if (nodes.length === 0) continue
+      const greenNode = nodes[nodes.length - 1]
 
       // Deduplicate — keep first match per hole number
       if (!coords.find(c => c.holeNumber === holeNum)) {
-        coords.push({ holeNumber: holeNum, lat, lng })
+        coords.push({ holeNumber: holeNum, lat: greenNode.lat, lng: greenNode.lon })
       }
     }
 

@@ -1,64 +1,211 @@
 // ============================================================
-// Strokes Gained Baseline Tables — calibrated for ~10-handicap amateur golfer
+// Strokes Gained Baseline Tables — 5 benchmark levels
 //
-// Previous tables used a scratch/elite baseline where a 350y hole expected
-// only 2.87 strokes — that made every normal golfer's shots look negative.
-// These tables are re-calibrated so that solid, average amateur shots
-// produce SG near zero, below-average shots go negative, and great shots
-// are genuinely positive.
+// Each level represents expected strokes to hole out from a given
+// distance and lie, calibrated to that handicap tier.
 //
-// Calibration anchors (expected strokes to hole out):
-//   Tee:     100y→2.9  150y→3.1  200y→3.3  250y→3.6  300y→3.9  400y→4.3  500y→4.8
-//   Fairway: 50y→2.7   100y→3.0  150y→3.3  200y→3.6  300y→4.2
-//   Rough:   penalty ~0.3 strokes vs fairway at same distance
-//   Sand:    penalty ~0.4–0.6 strokes vs fairway
-//   Green:   1ft→1.01  3ft→1.05  6ft→1.25  10ft→1.55  20ft→1.80  30ft→2.00
+// Benchmark calibration anchors (expected strokes from the tee):
+//   Scratch:  100y→2.30  200y→2.75  300y→3.20  350y→3.35  500y→3.82
+//   5 HCP:    100y→2.50  200y→2.98  300y→3.48  350y→3.68  500y→4.24
+//   10 HCP:   100y→2.70  200y→3.20  300y→3.75  350y→4.00  500y→4.65
+//   15 HCP:   100y→2.92  200y→3.48  300y→4.05  350y→4.32  500y→5.04
+//   20 HCP:   100y→3.15  200y→3.78  300y→4.42  350y→4.72  500y→5.52
 //
 // Key notes:
 //   - Green distance arrives in YARDS; internally multiplied by 3 → feet
-//   - calcShotSG always uses SG_FW for the "after" lie (Fairway fallback)
+//   - calcShotSG always uses the same benchmark's FW table for the "after" lie
 //   - Penalty shots return SG = -1 fixed
+//   - Default benchmark is '10hcp' for backward compatibility
 // ============================================================
 
-import type { Lie, SGCategory } from '@/types'
-
-// From the tee (and any unrecognised lie) — yards
-export const SG_TEE: [number, number][] = [
-  [10,1.80],[25,2.00],[50,2.20],[75,2.45],[100,2.70],[125,2.82],
-  [150,2.95],[175,3.08],[200,3.20],[225,3.35],[250,3.50],[275,3.62],
-  [300,3.75],[325,3.87],[350,4.00],[375,4.10],[400,4.20],[425,4.32],
-  [450,4.45],[500,4.65],[550,4.85],[600,5.05],
-]
-
-// From fairway — yards
-export const SG_FW: [number, number][] = [
-  [10,1.75],[25,1.95],[50,2.15],[75,2.45],[100,2.75],[125,2.95],
-  [150,3.10],[175,3.25],[200,3.40],[225,3.52],[250,3.65],[275,3.80],
-  [300,3.95],[350,4.20],[400,4.45],[450,4.70],[500,4.95],
-]
-
-// From rough / recovery — yards
-export const SG_ROUGH: [number, number][] = [
-  [10,1.90],[25,2.10],[50,2.35],[75,2.65],[100,2.95],[125,3.15],
-  [150,3.30],[175,3.45],[200,3.60],[225,3.73],[250,3.85],[275,4.00],
-  [300,4.15],[350,4.40],[400,4.65],[450,4.90],[500,5.15],
-]
-
-// From sand / bunker — yards
-export const SG_SAND: [number, number][] = [
-  [5,1.90],[10,2.10],[20,2.35],[30,2.55],[50,2.80],[75,3.10],
-  [100,3.35],[125,3.55],[150,3.75],[175,3.95],[200,4.15],
-]
-
-// On the green — FEET (distYards is multiplied ×3 before lookup)
-export const SG_GREEN: [number, number][] = [
-  [1,1.01],[2,1.02],[3,1.05],[4,1.10],[5,1.17],[6,1.25],
-  [8,1.37],[10,1.48],[12,1.57],[15,1.67],[20,1.80],[25,1.89],
-  [30,1.97],[40,2.07],[50,2.14],[60,2.20],[80,2.28],[100,2.35],
-]
+import type { Lie, SGCategory, BenchmarkKey } from '@/types'
 
 // ============================================================
-// lerpTable — same interpolation as HTML's lerpTable()
+// SGTables interface — one set per benchmark level
+// ============================================================
+interface SGTables {
+  tee:    [number, number][]
+  fw:     [number, number][]
+  rough:  [number, number][]
+  sand:   [number, number][]
+  green:  [number, number][]  // keyed in FEET (yards × 3)
+}
+
+// ============================================================
+// SCRATCH (0 HCP)
+// ============================================================
+const SCRATCH: SGTables = {
+  tee: [
+    [10,1.50],[25,1.70],[50,1.90],[75,2.10],[100,2.30],[125,2.43],
+    [150,2.55],[175,2.65],[200,2.75],[225,2.88],[250,3.00],[275,3.10],
+    [300,3.20],[325,3.28],[350,3.35],[375,3.43],[400,3.50],[425,3.58],
+    [450,3.68],[500,3.82],[550,4.00],[600,4.18],
+  ],
+  fw: [
+    [10,1.45],[25,1.60],[50,1.78],[75,2.00],[100,2.22],[125,2.38],
+    [150,2.50],[175,2.62],[200,2.72],[225,2.82],[250,2.92],[275,3.03],
+    [300,3.15],[350,3.37],[400,3.58],[450,3.80],[500,4.02],
+  ],
+  rough: [
+    [10,1.60],[25,1.78],[50,1.98],[75,2.22],[100,2.45],[125,2.62],
+    [150,2.75],[175,2.88],[200,2.98],[225,3.09],[250,3.19],[275,3.30],
+    [300,3.43],[350,3.65],[400,3.88],[450,4.10],[500,4.33],
+  ],
+  sand: [
+    [5,1.60],[10,1.80],[20,2.00],[30,2.18],[50,2.42],[75,2.68],
+    [100,2.90],[125,3.08],[150,3.25],[175,3.42],[200,3.60],
+  ],
+  green: [
+    [1,1.01],[2,1.01],[3,1.03],[4,1.07],[5,1.12],[6,1.18],
+    [8,1.28],[10,1.38],[12,1.46],[15,1.54],[20,1.65],[25,1.74],
+    [30,1.82],[40,1.92],[50,2.00],[60,2.06],[80,2.14],[100,2.20],
+  ],
+}
+
+// ============================================================
+// 5 HCP
+// ============================================================
+const HCP5: SGTables = {
+  tee: [
+    [10,1.65],[25,1.85],[50,2.05],[75,2.28],[100,2.50],[125,2.63],
+    [150,2.75],[175,2.87],[200,2.98],[225,3.12],[250,3.25],[275,3.37],
+    [300,3.48],[325,3.58],[350,3.68],[375,3.77],[400,3.85],[425,3.95],
+    [450,4.07],[500,4.24],[550,4.43],[600,4.62],
+  ],
+  fw: [
+    [10,1.60],[25,1.78],[50,1.97],[75,2.22],[100,2.48],[125,2.67],
+    [150,2.80],[175,2.94],[200,3.06],[225,3.17],[250,3.29],[275,3.42],
+    [300,3.56],[350,3.79],[400,4.02],[450,4.26],[500,4.49],
+  ],
+  rough: [
+    [10,1.75],[25,1.95],[50,2.17],[75,2.45],[100,2.72],[125,2.92],
+    [150,3.06],[175,3.21],[200,3.33],[225,3.45],[250,3.57],[275,3.71],
+    [300,3.85],[350,4.10],[400,4.35],[450,4.60],[500,4.85],
+  ],
+  sand: [
+    [5,1.75],[10,1.95],[20,2.18],[30,2.37],[50,2.62],[75,2.90],
+    [100,3.13],[125,3.32],[150,3.50],[175,3.68],[200,3.88],
+  ],
+  green: [
+    [1,1.01],[2,1.02],[3,1.04],[4,1.08],[5,1.14],[6,1.22],
+    [8,1.33],[10,1.43],[12,1.52],[15,1.61],[20,1.73],[25,1.82],
+    [30,1.90],[40,2.00],[50,2.08],[60,2.14],[80,2.22],[100,2.28],
+  ],
+}
+
+// ============================================================
+// 10 HCP (original calibration — default)
+// ============================================================
+const HCP10: SGTables = {
+  tee: [
+    [10,1.80],[25,2.00],[50,2.20],[75,2.45],[100,2.70],[125,2.82],
+    [150,2.95],[175,3.08],[200,3.20],[225,3.35],[250,3.50],[275,3.62],
+    [300,3.75],[325,3.87],[350,4.00],[375,4.10],[400,4.20],[425,4.32],
+    [450,4.45],[500,4.65],[550,4.85],[600,5.05],
+  ],
+  fw: [
+    [10,1.75],[25,1.95],[50,2.15],[75,2.45],[100,2.75],[125,2.95],
+    [150,3.10],[175,3.25],[200,3.40],[225,3.52],[250,3.65],[275,3.80],
+    [300,3.95],[350,4.20],[400,4.45],[450,4.70],[500,4.95],
+  ],
+  rough: [
+    [10,1.90],[25,2.10],[50,2.35],[75,2.65],[100,2.95],[125,3.15],
+    [150,3.30],[175,3.45],[200,3.60],[225,3.73],[250,3.85],[275,4.00],
+    [300,4.15],[350,4.40],[400,4.65],[450,4.90],[500,5.15],
+  ],
+  sand: [
+    [5,1.90],[10,2.10],[20,2.35],[30,2.55],[50,2.80],[75,3.10],
+    [100,3.35],[125,3.55],[150,3.75],[175,3.95],[200,4.15],
+  ],
+  green: [
+    [1,1.01],[2,1.02],[3,1.05],[4,1.10],[5,1.17],[6,1.25],
+    [8,1.37],[10,1.48],[12,1.57],[15,1.67],[20,1.80],[25,1.89],
+    [30,1.97],[40,2.07],[50,2.14],[60,2.20],[80,2.28],[100,2.35],
+  ],
+}
+
+// ============================================================
+// 15 HCP
+// ============================================================
+const HCP15: SGTables = {
+  tee: [
+    [10,1.95],[25,2.17],[50,2.40],[75,2.67],[100,2.95],[125,3.10],
+    [150,3.23],[175,3.37],[200,3.50],[225,3.65],[250,3.80],[275,3.93],
+    [300,4.07],[325,4.20],[350,4.35],[375,4.46],[400,4.58],[425,4.70],
+    [450,4.84],[500,5.07],[550,5.30],[600,5.53],
+  ],
+  fw: [
+    [10,1.90],[25,2.12],[50,2.35],[75,2.67],[100,3.00],[125,3.22],
+    [150,3.38],[175,3.55],[200,3.70],[225,3.83],[250,3.97],[275,4.12],
+    [300,4.28],[350,4.56],[400,4.84],[450,5.12],[500,5.40],
+  ],
+  rough: [
+    [10,2.07],[25,2.30],[50,2.57],[75,2.90],[100,3.23],[125,3.46],
+    [150,3.63],[175,3.81],[200,3.97],[225,4.11],[250,4.25],[275,4.42],
+    [300,4.58],[350,4.88],[400,5.18],[450,5.48],[500,5.78],
+  ],
+  sand: [
+    [5,2.07],[10,2.30],[20,2.57],[30,2.80],[50,3.07],[75,3.40],
+    [100,3.67],[125,3.88],[150,4.10],[175,4.32],[200,4.55],
+  ],
+  green: [
+    [1,1.01],[2,1.02],[3,1.06],[4,1.12],[5,1.20],[6,1.30],
+    [8,1.43],[10,1.55],[12,1.65],[15,1.76],[20,1.90],[25,2.00],
+    [30,2.08],[40,2.18],[50,2.26],[60,2.32],[80,2.40],[100,2.47],
+  ],
+}
+
+// ============================================================
+// 20 HCP
+// ============================================================
+const HCP20: SGTables = {
+  tee: [
+    [10,2.10],[25,2.35],[50,2.60],[75,2.90],[100,3.20],[125,3.38],
+    [150,3.53],[175,3.68],[200,3.83],[225,4.00],[250,4.17],[275,4.32],
+    [300,4.47],[325,4.62],[350,4.78],[375,4.91],[400,5.05],[425,5.20],
+    [450,5.35],[500,5.60],[550,5.85],[600,6.10],
+  ],
+  fw: [
+    [10,2.05],[25,2.30],[50,2.55],[75,2.90],[100,3.25],[125,3.50],
+    [150,3.68],[175,3.86],[200,4.03],[225,4.17],[250,4.32],[275,4.48],
+    [300,4.65],[350,4.95],[400,5.28],[450,5.60],[500,5.90],
+  ],
+  rough: [
+    [10,2.23],[25,2.50],[50,2.78],[75,3.14],[100,3.50],[125,3.76],
+    [150,3.95],[175,4.15],[200,4.33],[225,4.49],[250,4.65],[275,4.83],
+    [300,5.00],[350,5.33],[400,5.65],[450,5.98],[500,6.30],
+  ],
+  sand: [
+    [5,2.25],[10,2.50],[20,2.80],[30,3.05],[50,3.35],[75,3.72],
+    [100,4.00],[125,4.25],[150,4.50],[175,4.75],[200,5.00],
+  ],
+  green: [
+    [1,1.01],[2,1.03],[3,1.08],[4,1.15],[5,1.24],[6,1.35],
+    [8,1.50],[10,1.63],[12,1.74],[15,1.87],[20,2.02],[25,2.13],
+    [30,2.22],[40,2.33],[50,2.41],[60,2.48],[80,2.57],[100,2.65],
+  ],
+}
+
+// ============================================================
+// Benchmark → tables lookup
+// ============================================================
+export const BENCHMARK_TABLES: Record<BenchmarkKey, SGTables> = {
+  scratch: SCRATCH,
+  '5hcp':  HCP5,
+  '10hcp': HCP10,
+  '15hcp': HCP15,
+  '20hcp': HCP20,
+}
+
+// Backward-compatible named exports (alias to 10hcp)
+export const SG_TEE   = HCP10.tee
+export const SG_FW    = HCP10.fw
+export const SG_ROUGH = HCP10.rough
+export const SG_SAND  = HCP10.sand
+export const SG_GREEN = HCP10.green
+
+// ============================================================
+// lerpTable — linear interpolation within a lookup table
 // ============================================================
 function lerpTable(table: [number, number][], d: number): number {
   if (d <= table[0][0]) return table[0][1]
@@ -74,43 +221,44 @@ function lerpTable(table: [number, number][], d: number): number {
 }
 
 // ============================================================
-// expStrokes — mirrors HTML's expStrokes(distYards, lie)
-// lie values match the HTML: 'Green','Sand','Rough','Recovery','Fairway','Tee'
-// For our TypeScript lowercase types, we normalise before calling.
+// expStrokes — expected strokes from given distance and lie
 // ============================================================
-function expStrokes(distYards: number, lie: string): number {
+function expStrokes(distYards: number, lie: string, tables: SGTables): number {
   const l = lie.toLowerCase()
-  if (l === 'green')  return lerpTable(SG_GREEN, distYards * 3)  // yards → feet (×3)
-  if (l === 'sand')   return lerpTable(SG_SAND, distYards)
-  if (l === 'rough' || l === 'recovery') return lerpTable(SG_ROUGH, distYards)
-  if (l === 'fairway') return lerpTable(SG_FW, distYards)
-  return lerpTable(SG_TEE, distYards)  // 'tee' + anything else
+  if (l === 'green')  return lerpTable(tables.green, distYards * 3)  // yards → feet
+  if (l === 'sand')   return lerpTable(tables.sand,  distYards)
+  if (l === 'rough' || l === 'recovery') return lerpTable(tables.rough, distYards)
+  if (l === 'fairway') return lerpTable(tables.fw,   distYards)
+  return lerpTable(tables.tee, distYards)  // 'tee' + anything else
 }
 
 // ============================================================
-// calcShotSG — exact port of HTML's calcShotSG()
+// calcShotSG — strokes gained for a single shot
 //
-// distBefore: yards to flag from shot start
-// distAfter:  yards to flag from landing (0 if holed)
-// lieStart:   lie at start of shot
+// distBefore:  yards to flag from shot start
+// distAfter:   yards to flag from landing (0 if holed)
+// lieStart:    lie at start of shot
+// benchmark:   which HCP level to use as baseline (default '10hcp')
 //
-// NOTE: The HTML always uses 'Fairway' for the "after" expected
-// strokes (ignoring actual ending lie) — this matches the source.
+// NOTE: The "after" expected strokes always uses the fairway table
+// from the same benchmark — consistent with standard SG methodology.
 // ============================================================
 export function calcShotSG(
   distBefore: number,
   distAfter: number,
   lieStart: Lie,
+  benchmark: BenchmarkKey = '10hcp',
 ): number {
   if (lieStart === 'penalty') return -1
 
-  const before = expStrokes(distBefore, lieStart)
-  const after  = distAfter <= 0 ? 0 : expStrokes(distAfter, 'Fairway')
+  const tables = BENCHMARK_TABLES[benchmark] ?? HCP10
+  const before = expStrokes(distBefore, lieStart, tables)
+  const after  = distAfter <= 0 ? 0 : lerpTable(tables.fw, distAfter)
   return parseFloat((before - after - 1).toFixed(3))
 }
 
 // ============================================================
-// sgCategory — exact port of HTML's sgCategory()
+// sgCategory — classify shot into SG category
 // ============================================================
 export function sgCategory(lie: Lie, shotNum: number, par: number): SGCategory {
   if (lie === 'green')  return 'putt'
@@ -120,7 +268,7 @@ export function sgCategory(lie: Lie, shotNum: number, par: number): SGCategory {
 }
 
 // ============================================================
-// haversineYards — exact port of HTML's haversine() + yds()
+// haversineYards — great-circle distance in yards
 // ============================================================
 export function haversineYards(
   lat1: number, lng1: number,

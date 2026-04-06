@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Round, DashboardStats, Profile, BenchmarkKey } from '@/types'
 import { BENCHES } from '@/lib/benchmarks'
 import { fmt, fmtSG, sgColor } from '@/lib/stats'
@@ -18,6 +18,21 @@ const BENCH_KEYS: BenchmarkKey[] = ['scratch', '5hcp', '10hcp', '15hcp', '20hcp'
 
 export default function DashboardClient({ stats, rounds, profile }: Props) {
   const [benchmark, setBenchmark] = useState<BenchmarkKey>('10hcp')
+
+  // Load saved benchmark from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('fw_benchmark') as BenchmarkKey | null
+      if (saved && BENCH_KEYS.includes(saved)) setBenchmark(saved)
+    } catch { /* ignore */ }
+  }, [])
+
+  // Persist benchmark selection so Play page can read it
+  function handleBenchmarkChange(k: BenchmarkKey) {
+    setBenchmark(k)
+    try { localStorage.setItem('fw_benchmark', k) } catch { /* ignore */ }
+  }
+
   const bench = BENCHES[benchmark]
 
   const sgCategories = [
@@ -84,7 +99,7 @@ export default function DashboardClient({ stats, rounds, profile }: Props) {
             {BENCH_KEYS.map(k => (
               <button
                 key={k}
-                onClick={() => setBenchmark(k)}
+                onClick={() => handleBenchmarkChange(k)}
                 className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
                   benchmark === k
                     ? 'bg-accent text-bg'

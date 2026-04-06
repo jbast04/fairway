@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import type { ActiveRound, ActiveHole, ActiveShot, Lie } from '@/types'
+import type { ActiveRound, ActiveHole, ActiveShot, Lie, BenchmarkKey } from '@/types'
 import { calcShotSG, sgCategory, haversineYards } from '@/lib/sg-tables'
 
 const CLUBS = [
@@ -45,6 +45,14 @@ export default function ShotPanel({ round, hole, startCoords, targetCoords, endC
     ? haversineYards(endCoords[0], endCoords[1], hole.flagLat, hole.flagLng) < 1
     : false
 
+  // Read benchmark from localStorage (set in Dashboard)
+  const benchmark: BenchmarkKey = (() => {
+    try {
+      const b = typeof window !== 'undefined' ? localStorage.getItem('fw_benchmark') : null
+      return (b as BenchmarkKey) ?? '10hcp'
+    } catch { return '10hcp' }
+  })()
+
   const [club, setClub]         = useState<string | null>(null)
   const [startLie, setStartLie] = useState<Lie>(defaultStartLie)
   const [endLie, setEndLie]     = useState<Lie>(defaultStartLie === 'green' ? 'green' : 'fairway')
@@ -74,7 +82,7 @@ export default function ShotPanel({ round, hole, startCoords, targetCoords, endC
   let sg: number | null = null
   if (distToFlagBefore !== null) {
     const afterDist = isHoled ? 0 : (distToFlagAfter ?? 0)
-    sg = calcShotSG(distToFlagBefore, afterDist, startLie)
+    sg = calcShotSG(distToFlagBefore, afterDist, startLie, benchmark)
   }
 
   const category = sgCategory(startLie, shotNumber, hole.par)

@@ -192,11 +192,30 @@ export default function PreviewClient() {
     setPlannedShots(prev => [...prev, shot])
 
     // Next shot starts where this one ended
-    const newStart: [number, number] = [mapCenter[0], mapCenter[1]]
-    setPlanStart(newStart)
+    setPlanStart([mapCenter[0], mapCenter[1]])
     setPlanStartLie(detectedLie)
-    // Stay in set-landing — user just moves crosshair for next shot
-    // (planStart is now the landing position)
+  }
+
+  // Hole out — snap landing to the exact pin position (distAfter = 0)
+  function handleHoleOut() {
+    if (!planStart || distToFlagFromStart === null || !flagLat || !flagLng) return
+
+    const sgHoled = calcShotSG(distToFlagFromStart, 0, planStartLie, 'green', benchmark)
+    const dist    = haversineYards(planStart[0], planStart[1], flagLat, flagLng)
+
+    const shot: PlanShot = {
+      shotNum,
+      startPos: planStart,
+      endPos:   [flagLat, flagLng],
+      distYards: dist,
+      sg: sgHoled,
+    }
+    setPlannedShots(prev => [...prev, shot])
+
+    // Round is done — go back to set-start so user can review or move to next hole
+    setPlanStart(null)
+    setPlanStep('set-start')
+    setPlanStartLie('tee')
   }
 
   function handleUndoShot() {
@@ -465,7 +484,7 @@ export default function PreviewClient() {
             </div>
 
             {/* Action buttons */}
-            <div className="flex gap-2 px-4 pb-3 pt-2">
+            <div className="flex gap-2 px-4 pt-2">
               <button
                 onClick={handleUndoShot}
                 className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold text-text-dim"
@@ -485,6 +504,18 @@ export default function PreviewClient() {
                 🔄
               </button>
             </div>
+
+            {/* Hole out shortcut */}
+            {flagLat && flagLng && (
+              <div className="px-4 pb-3 pt-2">
+                <button
+                  onClick={handleHoleOut}
+                  className="w-full rounded-xl border border-emerald-500/40 bg-emerald-500/10 py-2.5 text-sm font-semibold text-emerald-400"
+                >
+                  ⛳ Hole Out — snap to pin
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

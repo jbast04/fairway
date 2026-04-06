@@ -71,9 +71,18 @@ export default function PlayClient() {
     setShowTeePicker(false)
     setStep('set-flag') // Start by placing the flag on hole 1
 
-    // Fetch hole GPS coordinates from OpenStreetMap in the background
+    // Fetch hole GPS coordinates from OpenStreetMap in the background.
+    // Reset flyToLocation first so the useEffect always fires even if hole 1
+    // coords happen to equal a previous flyToLocation value.
+    setFlyToLocation(null)
+    setHoleCoords([])
     fetchHoleCoords(selectedCourse.lat, selectedCourse.lng).then(coords => {
-      if (coords.length > 0) setHoleCoords(coords)
+      if (coords.length > 0) {
+        setHoleCoords(coords)
+        // Immediately fly to hole 1 — the useEffect below handles subsequent holes.
+        const h1 = coords.find(c => c.holeNumber === 1)
+        if (h1) setFlyToLocation([h1.lat, h1.lng])
+      }
     })
   }, [selectedCourse])
 

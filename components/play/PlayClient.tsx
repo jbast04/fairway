@@ -137,7 +137,7 @@ export default function PlayClient() {
         pendingEnd={pendingEnd}
         activeRound={activeRound}
         flyToLocation={flyToLocation}
-        onCenterChange={setMapCenter}
+        onCenterChange={(lat, lng) => setMapCenter([lat, lng])}
         onMapTap={placePoint}
       />
 

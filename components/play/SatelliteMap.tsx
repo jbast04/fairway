@@ -58,6 +58,14 @@ export default function SatelliteMap({
       await fixLeafletIcons()
       const L = (await import('leaflet')).default
 
+      // Force Leaflet into mouse-event mode so drag/zoom work on desktop browsers.
+      // Leaflet detects PointerEvent support and sets Browser.pointer = true, which
+      // causes it to use the touch drag handler — that handler breaks regular mouse drag.
+      // @ts-expect-error
+      L.Browser.touch   = false
+      // @ts-expect-error
+      L.Browser.pointer = false
+
       const map = L.map(containerRef.current!, {
         center,
         zoom,

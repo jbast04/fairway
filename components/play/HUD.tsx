@@ -33,10 +33,15 @@ export default function HUD({
     distToFlag = Math.round(haversineYards(pendingStart[0], pendingStart[1], hole.flagLat, hole.flagLng))
   }
 
-  // Live shot distance: from pendingStart to current map center (while choosing target)
+  // Live shot distance: from pendingStart → crosshair (set-end) or crosshair → flag (set-start)
   let liveDistance: number | null = null
+  let liveDistanceLabel = 'yards'
   if (step === 'set-end' && pendingStart) {
     liveDistance = Math.round(haversineYards(pendingStart[0], pendingStart[1], mapCenter[0], mapCenter[1]))
+    liveDistanceLabel = 'yards'
+  } else if (step === 'set-start' && hole.flagLat && hole.flagLng) {
+    liveDistance = Math.round(haversineYards(mapCenter[0], mapCenter[1], hole.flagLat, hole.flagLng))
+    liveDistanceLabel = 'yards to pin'
   }
 
   // Live flag distance: from map center to nothing yet (while placing flag or start)
@@ -98,7 +103,7 @@ export default function HUD({
             {liveDistance}
           </p>
           <p className="text-sm font-semibold text-white/80" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
-            yards
+            {liveDistanceLabel}
           </p>
         </div>
       )}

@@ -39,11 +39,53 @@ function centroid(nodes: { lat: number; lon: number }[]): { lat: number; lng: nu
   return { lat, lng }
 }
 
+// Multiple public Overpass mirrors — tried in parallel, first success wins
+const OVERPASS_MIRRORS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.karte.io/api/interpreter',
+  'https://overpass.openstreetmap.fr/api/interpreter',
+]
+
+async function overpassFetch(query: string): Promise<string | null> {
+  const body = 'data=' + encodeURIComponent(query)
+  const tries = OVERPASS_MIRRORS.map(url =>
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+      signal: AbortSignal.timeout(25000),
+    })
+      .then(r => r.text())
+      .then(t => t.trim().startsWith('{') ? t : null)
+      .catch(() => null)
+  )
+  // Return whichever mirror responds first with valid JSON
+  return new Promise(resolve => {
+    let settled = 0
+    tries.forEach(p =>
+      p.then(result => {
+        if (result) { resolve(result); return }
+        if (++settled === tries.length) resolve(null)
+      })
+    )
+  })
+}
+
 export async function fetchHoleCoords(
   courseLat: number,
   courseLng: number,
 ): Promise<HoleCoords[]> {
-  const query = `[out:json][timeout:30];
+  // ── localStorage cache — avoid re-fetching for the same course ──────────
+  const cacheKey = `fw_holes_${courseLat.toFixed(4)}_${courseLng.toFixed(4)}`
+  try {
+    const cached = typeof window !== 'undefined' && localStorage.getItem(cacheKey)
+    if (cached) {
+      const parsed: HoleCoords[] = JSON.parse(cached)
+      if (parsed.length > 0) return parsed
+    }
+  } catch { /* ignore */ }
+
+  const query = `[out:json][timeout:25];
 relation["leisure"="golf_course"](around:300,${courseLat},${courseLng})->.r;
 .r map_to_area ->.a;
 (
@@ -53,15 +95,8 @@ relation["leisure"="golf_course"](around:300,${courseLat},${courseLng})->.r;
 out geom tags;`
 
   try {
-    const res = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + encodeURIComponent(query),
-      signal: AbortSignal.timeout(35000),
-    })
-    if (!res.ok) return []
-    const text = await res.text()
-    if (!text.trim().startsWith('{')) return []
+    const text = await overpassFetch(query)
+    if (!text) return []
     const data = JSON.parse(text)
 
     // --- Separate greens and holes ---
@@ -129,7 +164,16 @@ out geom tags;`
       if (c) result.push({ holeNumber: hole.holeNumber, lat: c.lat, lng: c.lng })
     }
 
-    return result.sort((a, b) => a.holeNumber - b.holeNumber)
+    const sorted = result.sort((a, b) => a.holeNumber - b.holeNumber)
+
+    // Cache for next time — avoids hitting Overpass on every round at this course
+    try {
+      if (typeof window !== 'undefined' && sorted.length > 0) {
+        localStorage.setItem(cacheKey, JSON.stringify(sorted))
+      }
+    } catch { /* ignore quota errors */ }
+
+    return sorted
   } catch {
     return []
   }

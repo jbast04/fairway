@@ -98,8 +98,9 @@ export default function SatelliteMap({
         maxZoom: 22,
       })
 
-      const satLayer   = L.tileLayer(ESRI_SATELLITE, { maxZoom: 22, maxNativeZoom: 20 })
-      const labelLayer = L.tileLayer(ESRI_LABELS,    { maxZoom: 22, maxNativeZoom: 20, opacity: 0.7 })
+      // ESRI native tiles only go to zoom 19 for most courses — Leaflet upscales beyond that.
+      const satLayer   = L.tileLayer(ESRI_SATELLITE, { maxZoom: 22, maxNativeZoom: 19 })
+      const labelLayer = L.tileLayer(ESRI_LABELS,    { maxZoom: 22, maxNativeZoom: 19, opacity: 0.7 })
       const osmLayer   = L.tileLayer(OSM_STANDARD,   { maxZoom: 22, maxNativeZoom: 19 })
 
       satLayer.addTo(map)

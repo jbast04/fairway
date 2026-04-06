@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import type { ActiveRound, ActiveHole, TeeColor } from '@/types'
 import { fetchHoleCoords, type HoleCoords } from '@/lib/overpass'
+import { haversineYards } from '@/lib/sg-tables'
 import CourseSearchModal from './CourseSearchModal'
 import TeePickerModal from './TeePickerModal'
 import ShotPanel from './ShotPanel'
@@ -115,6 +116,14 @@ export default function PlayClient() {
       setStep('set-start')
     } else if (step === 'set-start') {
       setPendingStart([lat, lng])
+      // Within 90 feet of the hole → auto-target the flag, skip set-target
+      const hole = activeRound?.holes[(activeRound?.currentHole ?? 1) - 1]
+      if (hole?.flagLat && hole?.flagLng &&
+          haversineYards(lat, lng, hole.flagLat, hole.flagLng) < 30) {
+        setPendingTarget([hole.flagLat, hole.flagLng])
+        setStep('set-result')
+        return
+      }
       setStep('set-target')
     } else if (step === 'set-target') {
       setPendingTarget([lat, lng])
@@ -256,11 +265,19 @@ export default function PlayClient() {
               }
             } else {
               setActiveRound(updated)
-              // Auto-chain: next shot starts from previous landing, skip set-start
-              setPendingStart(pendingEnd)
-              setPendingTarget(null)
+              const newStart = pendingEnd!
+              // Within 90 feet of hole → auto-target the flag for the next shot too
+              const autoTarget = currentHole.flagLat && currentHole.flagLng &&
+                haversineYards(newStart[0], newStart[1], currentHole.flagLat, currentHole.flagLng) < 30
+              setPendingStart(newStart)
               setPendingEnd(null)
-              setStep('set-target')
+              if (autoTarget) {
+                setPendingTarget([currentHole.flagLat!, currentHole.flagLng!])
+                setStep('set-result')
+              } else {
+                setPendingTarget(null)
+                setStep('set-target')
+              }
             }
           }}
           onCancel={() => {

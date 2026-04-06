@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import type { ActiveRound, ActiveHole, TeeColor } from '@/types'
+import { fetchHoleCoords, type HoleCoords } from '@/lib/overpass'
 import CourseSearchModal from './CourseSearchModal'
 import TeePickerModal from './TeePickerModal'
 import ShotPanel from './ShotPanel'
@@ -37,6 +38,7 @@ export default function PlayClient() {
   const [mapCenter, setMapCenter]               = useState<[number, number]>([39.5, -98.35])
   const [flyToLocation, setFlyToLocation]       = useState<[number, number] | null>(null)
   const [locating, setLocating]                 = useState(false)
+  const [holeCoords, setHoleCoords]             = useState<HoleCoords[]>([])
 
   const handleCourseSelect = useCallback((course: FullCourse) => {
     setSelectedCourse(course)
@@ -68,6 +70,11 @@ export default function PlayClient() {
     setActiveRound(round)
     setShowTeePicker(false)
     setStep('set-flag') // Start by placing the flag on hole 1
+
+    // Fetch hole GPS coordinates from OpenStreetMap in the background
+    fetchHoleCoords(selectedCourse.lat, selectedCourse.lng).then(coords => {
+      if (coords.length > 0) setHoleCoords(coords)
+    })
   }, [selectedCourse])
 
   const handleMyLocation = useCallback(() => {
@@ -124,6 +131,14 @@ export default function PlayClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [!!activeRound, !!selectedCourse],
   )
+
+  // Auto-fly to the green when hole changes and OSM coords are available
+  useEffect(() => {
+    if (!activeRound || holeCoords.length === 0) return
+    const coords = holeCoords.find(h => h.holeNumber === activeRound.currentHole)
+    if (coords) setFlyToLocation([coords.lat, coords.lng])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRound?.currentHole, holeCoords])
 
   return (
     <div className="relative" style={{ height: 'calc(100dvh - 4rem)' }}>

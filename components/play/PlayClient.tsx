@@ -12,7 +12,7 @@ import LiveStatsStrip from './LiveStatsStrip'
 
 const SatelliteMap = dynamic(() => import('./SatelliteMap'), { ssr: false })
 
-export type PlayStep = 'idle' | 'set-flag' | 'set-start' | 'set-end' | 'log-shot'
+export type PlayStep = 'idle' | 'set-flag' | 'set-start' | 'set-target' | 'set-result' | 'log-shot'
 
 interface FullCourse {
   id: string
@@ -34,6 +34,7 @@ export default function PlayClient() {
   const [step, setStep]                         = useState<PlayStep>('idle')
   const [layerSatellite, setLayerSatellite]     = useState(true)
   const [pendingStart, setPendingStart]         = useState<[number, number] | null>(null)
+  const [pendingTarget, setPendingTarget]       = useState<[number, number] | null>(null)
   const [pendingEnd, setPendingEnd]             = useState<[number, number] | null>(null)
   const [mapCenter, setMapCenter]               = useState<[number, number]>([39.5, -98.35])
   const [flyToLocation, setFlyToLocation]       = useState<[number, number] | null>(null)
@@ -114,8 +115,11 @@ export default function PlayClient() {
       setStep('set-start')
     } else if (step === 'set-start') {
       setPendingStart([lat, lng])
-      setStep('set-end')
-    } else if (step === 'set-end') {
+      setStep('set-target')
+    } else if (step === 'set-target') {
+      setPendingTarget([lat, lng])
+      setStep('set-result')
+    } else if (step === 'set-result') {
       setPendingEnd([lat, lng])
       setStep('log-shot')
     }
@@ -158,6 +162,7 @@ export default function PlayClient() {
         satellite={layerSatellite}
         step={step}
         pendingStart={pendingStart}
+        pendingTarget={pendingTarget}
         pendingEnd={pendingEnd}
         activeRound={activeRound}
         flyToLocation={flyToLocation}
@@ -166,7 +171,7 @@ export default function PlayClient() {
       />
 
       {/* Crosshair — shown when placing flag, tee, or target */}
-      {(step === 'set-flag' || step === 'set-start' || step === 'set-end') && (
+      {(step === 'set-flag' || step === 'set-start' || step === 'set-target' || step === 'set-result') && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
           <div className="relative flex items-center justify-center">
             <div className="absolute h-px w-20 bg-white opacity-90" style={{ boxShadow: '0 0 4px rgba(0,0,0,0.8)' }} />
@@ -183,19 +188,20 @@ export default function PlayClient() {
           hole={currentHole}
           step={step}
           pendingStart={pendingStart}
+          pendingTarget={pendingTarget}
           mapCenter={mapCenter}
           onConfirm={handleConfirm}
           onPrevHole={() => {
             if (activeRound.currentHole > 1) {
               setActiveRound(r => r ? { ...r, currentHole: r.currentHole - 1 } : r)
-              setPendingStart(null); setPendingEnd(null)
+              setPendingStart(null); setPendingTarget(null); setPendingEnd(null)
               setStep('set-flag')
             }
           }}
           onNextHole={() => {
             if (activeRound.currentHole < activeRound.holes.length) {
               setActiveRound(r => r ? { ...r, currentHole: r.currentHole + 1 } : r)
-              setPendingStart(null); setPendingEnd(null)
+              setPendingStart(null); setPendingTarget(null); setPendingEnd(null)
               setStep('set-flag')
             }
           }}
@@ -221,11 +227,12 @@ export default function PlayClient() {
       )}
 
       {/* Shot panel slides up when step = log-shot */}
-      {step === 'log-shot' && pendingStart && pendingEnd && activeRound && currentHole && (
+      {step === 'log-shot' && pendingStart && pendingTarget && pendingEnd && activeRound && currentHole && (
         <ShotPanel
           round={activeRound}
           hole={currentHole}
           startCoords={pendingStart}
+          targetCoords={pendingTarget}
           endCoords={pendingEnd}
           onSave={(shot) => {
             const updated = { ...activeRound }
@@ -249,15 +256,16 @@ export default function PlayClient() {
               }
             } else {
               setActiveRound(updated)
-              // Auto-chain: next shot starts from previous landing
+              // Auto-chain: next shot starts from previous landing, skip set-start
               setPendingStart(pendingEnd)
+              setPendingTarget(null)
               setPendingEnd(null)
-              setStep('set-end')
+              setStep('set-target')
             }
           }}
           onCancel={() => {
             setPendingEnd(null)
-            setStep('set-end')
+            setStep('set-result')
           }}
         />
       )}

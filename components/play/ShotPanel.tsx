@@ -24,12 +24,13 @@ interface Props {
   round: ActiveRound
   hole: ActiveHole
   startCoords: [number, number]
-  endCoords: [number, number]
+  targetCoords: [number, number]   // where the player aimed
+  endCoords: [number, number]      // where the ball actually landed
   onSave: (shot: ActiveShot) => void
   onCancel: () => void
 }
 
-export default function ShotPanel({ round, hole, startCoords, endCoords, onSave, onCancel }: Props) {
+export default function ShotPanel({ round, hole, startCoords, targetCoords, endCoords, onSave, onCancel }: Props) {
   const shotNumber = hole.shots.length + 1
 
   // Determine start lie from previous shot or default
@@ -45,6 +46,11 @@ export default function ShotPanel({ round, hole, startCoords, endCoords, onSave,
 
   // Compute distances
   const distYards = haversineYards(startCoords[0], startCoords[1], endCoords[0], endCoords[1])
+  const targetYards = haversineYards(startCoords[0], startCoords[1], targetCoords[0], targetCoords[1])
+  const dispersionYards = haversineYards(targetCoords[0], targetCoords[1], endCoords[0], endCoords[1])
+
+  // Format: feet when < 30 yards, otherwise yards
+  const fmtDist = (y: number) => y < 30 ? `${Math.round(y * 3)}ft` : `${Math.round(y)}y`
   const distToFlagBefore = hole.flagLat && hole.flagLng
     ? haversineYards(startCoords[0], startCoords[1], hole.flagLat, hole.flagLng)
     : null
@@ -70,10 +76,13 @@ export default function ShotPanel({ round, hole, startCoords, endCoords, onSave,
       endLie: isHoled ? null : endLie,
       startLat: startCoords[0],
       startLng: startCoords[1],
+      targetLat: targetCoords[0],
+      targetLng: targetCoords[1],
       endLat: endCoords[0],
       endLng: endCoords[1],
       distToFlagBefore,
       distToFlagAfter: isHoled ? 0 : distToFlagAfter,
+      dispersionYards,
       sg,
       sgCategory: category,
       isHoled,
@@ -93,7 +102,8 @@ export default function ShotPanel({ round, hole, startCoords, endCoords, onSave,
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-text-dim">Shot {shotNumber} · Hole {hole.holeNumber}</p>
-            <p className="text-sm font-semibold text-text">{distYards}y</p>
+            <p className="text-sm font-semibold text-text">{fmtDist(distYards)} actual</p>
+            <p className="text-xs text-text-dim">{fmtDist(targetYards)} target · <span className="text-orange-400">{fmtDist(dispersionYards)} miss</span></p>
           </div>
           {sg !== null && (
             <div className="rounded-lg border border-border bg-surface-2 px-3 py-1 text-center">

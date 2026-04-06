@@ -34,6 +34,7 @@ interface Props {
   satellite: boolean
   step: PlayStep
   pendingStart: [number, number] | null
+  pendingTarget: [number, number] | null
   pendingEnd: [number, number] | null
   activeRound: ActiveRound | null
   flyToLocation: [number, number] | null
@@ -43,7 +44,7 @@ interface Props {
 
 export default function SatelliteMap({
   center, zoom, satellite, step,
-  pendingStart, pendingEnd, activeRound,
+  pendingStart, pendingTarget, pendingEnd, activeRound,
   flyToLocation, onCenterChange, onMapTap,
 }: Props) {
   const containerRef    = useRef<HTMLDivElement>(null)
@@ -55,7 +56,9 @@ export default function SatelliteMap({
   const endMarkerRef    = useRef<Marker | null>(null)
   const flagMarkerRef   = useRef<Marker | null>(null)
   const shotMarkersRef  = useRef<any[]>([])
+  const targetMarkerRef      = useRef<Marker | null>(null)
   const liveLineRef          = useRef<Polyline | null>(null)
+  const liveMissLineRef      = useRef<Polyline | null>(null)
   const liveLineFlagRef      = useRef<Polyline | null>(null)
   const liveYardageLabelRef  = useRef<Marker | null>(null)
   const userMarkerRef        = useRef<Marker | null>(null)
@@ -92,11 +95,12 @@ export default function SatelliteMap({
         touchZoom: false,
         tap: false,
         boxZoom: false,
+        maxZoom: 22,
       })
 
-      const satLayer   = L.tileLayer(ESRI_SATELLITE, { maxZoom: 20 })
-      const labelLayer = L.tileLayer(ESRI_LABELS,    { maxZoom: 20, opacity: 0.7 })
-      const osmLayer   = L.tileLayer(OSM_STANDARD,   { maxZoom: 19 })
+      const satLayer   = L.tileLayer(ESRI_SATELLITE, { maxZoom: 22, maxNativeZoom: 20 })
+      const labelLayer = L.tileLayer(ESRI_LABELS,    { maxZoom: 22, maxNativeZoom: 20, opacity: 0.7 })
+      const osmLayer   = L.tileLayer(OSM_STANDARD,   { maxZoom: 22, maxNativeZoom: 19 })
 
       satLayer.addTo(map)
       labelLayer.addTo(map)
@@ -151,7 +155,26 @@ export default function SatelliteMap({
     }
   }, [satellite])
 
-  // Live line + yardage label: shot line during set-end, flag line during set-start
+  // Target marker — placed once when pendingTarget is set, removed when cleared
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const init = async () => {
+      const L = (await import('leaflet')).default
+      if (targetMarkerRef.current) { map.removeLayer(targetMarkerRef.current); targetMarkerRef.current = null }
+      if (pendingTarget) {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="width:14px;height:14px;border-radius:50%;background:#f59e0b;border:3px solid #fff;box-shadow:0 0 0 2px rgba(245,158,11,0.4)"></div>`,
+          iconSize: [14, 14], iconAnchor: [7, 7],
+        })
+        targetMarkerRef.current = L.marker(pendingTarget, { icon, interactive: false, zIndexOffset: 600 }).addTo(map)
+      }
+    }
+    init()
+  }, [pendingTarget])
+
+  // Live lines + yardage labels
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -160,10 +183,14 @@ export default function SatelliteMap({
       const L = (await import('leaflet')).default
       const c = map.getCenter()
 
-      // Helper: create or update a yardage label marker
+      // Helper: yards → display string
+      const fmtYards = (y: number) => y < 30 ? `${Math.round(y * 3)}ft` : `${Math.round(y)}y`
+
+      // Helper: create or update the main yardage label
       const setLabel = (yards: number, midLat: number, midLng: number, color: string, suffix: string) => {
-        const html = `<div style="background:rgba(0,0,0,0.78);color:${color};font-weight:700;font-size:13px;padding:2px 7px;border-radius:6px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.6)">${yards}y${suffix}</div>`
-        const icon = L.divIcon({ className: '', html, iconSize: [70, 22], iconAnchor: [35, 11] })
+        const text = fmtYards(yards) + suffix
+        const html = `<div style="background:rgba(0,0,0,0.78);color:${color};font-weight:700;font-size:13px;padding:2px 7px;border-radius:6px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.6)">${text}</div>`
+        const icon = L.divIcon({ className: '', html, iconSize: [80, 22], iconAnchor: [40, 11] })
         if (liveYardageLabelRef.current) {
           liveYardageLabelRef.current.setLatLng([midLat, midLng])
           liveYardageLabelRef.current.setIcon(icon)
@@ -172,8 +199,15 @@ export default function SatelliteMap({
         }
       }
 
-      if (step === 'set-end' && pendingStart) {
-        // White dashed line: tee/start → crosshair
+      const clearAll = () => {
+        if (liveLineRef.current) { map.removeLayer(liveLineRef.current); liveLineRef.current = null }
+        if (liveMissLineRef.current) { map.removeLayer(liveMissLineRef.current); liveMissLineRef.current = null }
+        if (liveLineFlagRef.current) { map.removeLayer(liveLineFlagRef.current); liveLineFlagRef.current = null }
+        if (liveYardageLabelRef.current) { map.removeLayer(liveYardageLabelRef.current); liveYardageLabelRef.current = null }
+      }
+
+      if ((step === 'set-target' || step === 'set-result') && pendingStart) {
+        // White dashed line: start → crosshair (intended or actual distance)
         const yards = haversineYards(pendingStart[0], pendingStart[1], c.lat, c.lng)
         if (liveLineRef.current) {
           liveLineRef.current.setLatLngs([pendingStart, [c.lat, c.lng]])
@@ -183,11 +217,30 @@ export default function SatelliteMap({
           }).addTo(map)
         }
         setLabel(yards, (pendingStart[0] + c.lat) / 2, (pendingStart[1] + c.lng) / 2, '#ffffff', '')
-        // Remove flag line if leftover
+
+        // During set-result: also show orange miss line from confirmed target → crosshair
+        if (step === 'set-result' && pendingTarget) {
+          const missYards = haversineYards(pendingTarget[0], pendingTarget[1], c.lat, c.lng)
+          if (liveMissLineRef.current) {
+            liveMissLineRef.current.setLatLngs([pendingTarget, [c.lat, c.lng]])
+          } else {
+            liveMissLineRef.current = L.polyline([pendingTarget, [c.lat, c.lng]], {
+              color: '#f59e0b', weight: 2, opacity: 0.85, dashArray: '4 4',
+            }).addTo(map)
+          }
+          // Show miss label near the midpoint of the miss line
+          const missLabel = fmtYards(missYards) + ' miss'
+          const missHtml = `<div style="background:rgba(0,0,0,0.78);color:#f59e0b;font-weight:700;font-size:11px;padding:2px 5px;border-radius:5px;white-space:nowrap">${missLabel}</div>`
+          // Update label in liveYardageLabelRef is already for distance; use separate note
+          // (we skip a separate label to keep UI clean — the HUD shows miss distance)
+        } else {
+          if (liveMissLineRef.current) { map.removeLayer(liveMissLineRef.current); liveMissLineRef.current = null }
+        }
+
         if (liveLineFlagRef.current) { map.removeLayer(liveLineFlagRef.current); liveLineFlagRef.current = null }
 
       } else if (step === 'set-start' && flagLat && flagLng) {
-        // Red dashed line: crosshair → pin (distance to flag from where you're standing)
+        // Red dashed line: crosshair → pin
         const yards = haversineYards(c.lat, c.lng, flagLat, flagLng)
         if (liveLineFlagRef.current) {
           liveLineFlagRef.current.setLatLngs([[c.lat, c.lng], [flagLat, flagLng]])
@@ -198,19 +251,17 @@ export default function SatelliteMap({
         }
         setLabel(yards, (c.lat + flagLat) / 2, (c.lng + flagLng) / 2, '#f87171', ' to pin')
         if (liveLineRef.current) { map.removeLayer(liveLineRef.current); liveLineRef.current = null }
+        if (liveMissLineRef.current) { map.removeLayer(liveMissLineRef.current); liveMissLineRef.current = null }
 
       } else {
-        // Clean up all lines
-        if (liveLineRef.current) { map.removeLayer(liveLineRef.current); liveLineRef.current = null }
-        if (liveLineFlagRef.current) { map.removeLayer(liveLineFlagRef.current); liveLineFlagRef.current = null }
-        if (liveYardageLabelRef.current) { map.removeLayer(liveYardageLabelRef.current); liveYardageLabelRef.current = null }
+        clearAll()
       }
     }
 
     updateLine()
     map.on('move', updateLine)
     return () => { map.off('move', updateLine) }
-  }, [step, pendingStart, flagLat, flagLng])
+  }, [step, pendingStart, pendingTarget, flagLat, flagLng])
 
   // Start marker (green dot)
   useEffect(() => {

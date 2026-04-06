@@ -176,10 +176,13 @@ export interface ActiveShot {
   endLie: Lie | null
   startLat: number
   startLng: number
-  endLat: number | null
+  targetLat: number | null   // where the player AIMED
+  targetLng: number | null
+  endLat: number | null      // where the ball ACTUALLY landed
   endLng: number | null
   distToFlagBefore: number | null
   distToFlagAfter: number | null
+  dispersionYards: number | null  // distance from target to actual landing
   sg: number | null
   sgCategory: SGCategory | null
   isHoled: boolean

@@ -9,6 +9,7 @@ interface Props {
   hole: ActiveHole
   step: PlayStep
   pendingStart: [number, number] | null
+  pendingTarget: [number, number] | null
   mapCenter: [number, number]
   onPrevHole: () => void
   onNextHole: () => void
@@ -16,45 +17,67 @@ interface Props {
 }
 
 const STEP_LABELS: Record<PlayStep, string> = {
-  idle:       '',
-  'set-flag': 'Pan to flag, confirm ✓',
-  'set-start':'Pan to tee, confirm ✓',
-  'set-end':  'Pan to target, confirm ✓',
-  'log-shot': 'Log this shot',
+  idle:         '',
+  'set-flag':   'Pan to flag, confirm ✓',
+  'set-start':  'Pan to tee / ball, confirm ✓',
+  'set-target': 'Pan to target, confirm ✓',
+  'set-result': 'Pan to result, confirm ✓',
+  'log-shot':   'Log this shot',
+}
+
+/** Show feet when < 30 yards (putts/chips); otherwise yards. */
+function fmt(yards: number): { value: number; unit: string } {
+  if (yards < 30) return { value: Math.round(yards * 3), unit: 'ft' }
+  return { value: Math.round(yards), unit: 'y' }
 }
 
 export default function HUD({
-  round, hole, step, pendingStart, mapCenter,
+  round, hole, step, pendingStart, pendingTarget, mapCenter,
   onPrevHole, onNextHole, onConfirm,
 }: Props) {
-  // Distance to flag from pending start
+  // Distance to flag from pending start (shown in top-left badge)
   let distToFlag: number | null = null
   if (pendingStart && hole.flagLat && hole.flagLng) {
     distToFlag = Math.round(haversineYards(pendingStart[0], pendingStart[1], hole.flagLat, hole.flagLng))
   }
 
-  // Live shot distance: from pendingStart → crosshair (set-end) or crosshair → flag (set-start)
-  let liveDistance: number | null = null
-  let liveDistanceLabel = 'yards'
-  if (step === 'set-end' && pendingStart) {
-    liveDistance = Math.round(haversineYards(pendingStart[0], pendingStart[1], mapCenter[0], mapCenter[1]))
-    liveDistanceLabel = 'yards'
-  } else if (step === 'set-start' && hole.flagLat && hole.flagLng) {
-    liveDistance = Math.round(haversineYards(mapCenter[0], mapCenter[1], hole.flagLat, hole.flagLng))
-    liveDistanceLabel = 'yards to pin'
+  // Live distance from crosshair, depends on step
+  let liveYards: number | null = null
+  let liveLabel = ''
+  let missYards: number | null = null  // distance from target → crosshair (during set-result)
+
+  if (step === 'set-start' && hole.flagLat && hole.flagLng) {
+    // Show distance from crosshair to pin while picking start
+    liveYards = haversineYards(mapCenter[0], mapCenter[1], hole.flagLat, hole.flagLng)
+    liveLabel = 'to pin'
+  } else if (step === 'set-target' && pendingStart) {
+    // Show intended shot distance
+    liveYards = haversineYards(pendingStart[0], pendingStart[1], mapCenter[0], mapCenter[1])
+    liveLabel = 'to target'
+  } else if (step === 'set-result' && pendingStart) {
+    // Show actual shot distance
+    liveYards = haversineYards(pendingStart[0], pendingStart[1], mapCenter[0], mapCenter[1])
+    liveLabel = 'actual'
+    // Show miss from target
+    if (pendingTarget) {
+      missYards = haversineYards(pendingTarget[0], pendingTarget[1], mapCenter[0], mapCenter[1])
+    }
   }
 
-  // Live flag distance: from map center to nothing yet (while placing flag or start)
-  const showConfirm = step === 'set-flag' || step === 'set-start' || step === 'set-end'
+  const showConfirm = step === 'set-flag' || step === 'set-start' || step === 'set-target' || step === 'set-result'
+
+  const liveFmt = liveYards !== null ? fmt(liveYards) : null
+  const missFmt = missYards !== null ? fmt(missYards) : null
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 z-30 p-3">
       <div className="flex items-start justify-between gap-2">
-        {/* Distance badge */}
+
+        {/* Distance to flag badge */}
         <div className="pointer-events-auto rounded-xl border border-border bg-surface/90 px-3 py-1.5 backdrop-blur">
           <p className="text-[10px] text-text-dim">To Hole</p>
           <p className="text-xl font-bold text-accent">
-            {distToFlag !== null ? `${distToFlag}y` : '—'}
+            {distToFlag !== null ? `${fmt(distToFlag).value}${fmt(distToFlag).unit}` : '—'}
           </p>
         </div>
 
@@ -64,20 +87,18 @@ export default function HUD({
             onClick={onPrevHole}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-text-dim active:bg-surface-2"
           >‹</button>
-
           <div className="min-w-[64px] text-center">
             <p className="text-xs text-text-dim">Hole</p>
             <p className="text-lg font-bold text-text">{hole.holeNumber}</p>
             <p className="text-[10px] text-text-dim">Par {hole.par}</p>
           </div>
-
           <button
             onClick={onNextHole}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-text-dim active:bg-surface-2"
           >›</button>
         </div>
 
-        {/* Step label + confirm button */}
+        {/* Step label + confirm */}
         <div className="pointer-events-auto flex flex-col items-end gap-2">
           {step !== 'idle' && step !== 'log-shot' && (
             <div className="rounded-xl border border-border bg-surface/90 px-3 py-1.5 backdrop-blur">
@@ -93,18 +114,24 @@ export default function HUD({
         </div>
       </div>
 
-      {/* Large live distance while selecting target */}
-      {liveDistance !== null && liveDistance > 0 && (
-        <div className="mt-4 flex flex-col items-center">
-          <p
-            className="text-6xl font-bold text-white"
-            style={{ textShadow: '0 2px 8px rgba(0,0,0,0.9)' }}
-          >
-            {liveDistance}
+      {/* Large live distance */}
+      {liveFmt !== null && liveFmt.value > 0 && (
+        <div className="mt-3 flex flex-col items-center">
+          <p className="text-6xl font-bold text-white" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.9)' }}>
+            {liveFmt.value}
           </p>
           <p className="text-sm font-semibold text-white/80" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
-            {liveDistanceLabel}
+            {liveFmt.unit} {liveLabel}
           </p>
+
+          {/* Miss distance during set-result */}
+          {missFmt !== null && (
+            <div className="mt-1 rounded-lg bg-black/60 px-3 py-1">
+              <p className="text-center text-sm font-semibold text-orange-400">
+                {missFmt.value}{missFmt.unit} from target
+              </p>
+            </div>
+          )}
         </div>
       )}
 

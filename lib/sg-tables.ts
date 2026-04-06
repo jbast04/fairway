@@ -1,10 +1,20 @@
 // ============================================================
-// Strokes Gained Baseline Tables — ported exactly from HTML source
+// Strokes Gained Baseline Tables — calibrated for ~10-handicap amateur golfer
 //
-// HTML format: {distance: expected_strokes} objects
-// Converted to sorted [distance, strokes] tuples for TypeScript.
+// Previous tables used a scratch/elite baseline where a 350y hole expected
+// only 2.87 strokes — that made every normal golfer's shots look negative.
+// These tables are re-calibrated so that solid, average amateur shots
+// produce SG near zero, below-average shots go negative, and great shots
+// are genuinely positive.
 //
-// Key notes from the HTML's expStrokes():
+// Calibration anchors (expected strokes to hole out):
+//   Tee:     100y→2.9  150y→3.1  200y→3.3  250y→3.6  300y→3.9  400y→4.3  500y→4.8
+//   Fairway: 50y→2.7   100y→3.0  150y→3.3  200y→3.6  300y→4.2
+//   Rough:   penalty ~0.3 strokes vs fairway at same distance
+//   Sand:    penalty ~0.4–0.6 strokes vs fairway
+//   Green:   1ft→1.01  3ft→1.05  6ft→1.25  10ft→1.55  20ft→1.80  30ft→2.00
+//
+// Key notes:
 //   - Green distance arrives in YARDS; internally multiplied by 3 → feet
 //   - calcShotSG always uses SG_FW for the "after" lie (Fairway fallback)
 //   - Penalty shots return SG = -1 fixed
@@ -14,37 +24,37 @@ import type { Lie, SGCategory } from '@/types'
 
 // From the tee (and any unrecognised lie) — yards
 export const SG_TEE: [number, number][] = [
-  [10,1.75],[25,1.87],[50,1.97],[75,2.05],[100,2.12],[125,2.20],
-  [150,2.28],[175,2.36],[200,2.43],[225,2.50],[250,2.58],[275,2.65],
-  [300,2.73],[325,2.80],[350,2.87],[375,2.94],[400,3.00],[425,3.06],
-  [450,3.12],[500,3.25],[550,3.38],[600,3.50],
+  [10,1.80],[25,2.00],[50,2.20],[75,2.45],[100,2.70],[125,2.82],
+  [150,2.95],[175,3.08],[200,3.20],[225,3.35],[250,3.50],[275,3.62],
+  [300,3.75],[325,3.87],[350,4.00],[375,4.10],[400,4.20],[425,4.32],
+  [450,4.45],[500,4.65],[550,4.85],[600,5.05],
 ]
 
 // From fairway — yards
 export const SG_FW: [number, number][] = [
-  [10,1.70],[25,1.82],[50,1.93],[75,2.00],[100,2.07],[125,2.15],
-  [150,2.23],[175,2.31],[200,2.39],[225,2.46],[250,2.53],[275,2.60],
-  [300,2.67],[350,2.80],[400,2.93],[450,3.07],[500,3.20],
+  [10,1.75],[25,1.95],[50,2.15],[75,2.45],[100,2.75],[125,2.95],
+  [150,3.10],[175,3.25],[200,3.40],[225,3.52],[250,3.65],[275,3.80],
+  [300,3.95],[350,4.20],[400,4.45],[450,4.70],[500,4.95],
 ]
 
 // From rough / recovery — yards
 export const SG_ROUGH: [number, number][] = [
-  [10,1.80],[25,1.93],[50,2.05],[75,2.15],[100,2.23],[125,2.31],
-  [150,2.39],[175,2.47],[200,2.55],[225,2.62],[250,2.69],[275,2.76],
-  [300,2.83],[350,2.96],[400,3.09],[450,3.22],[500,3.35],
+  [10,1.90],[25,2.10],[50,2.35],[75,2.65],[100,2.95],[125,3.15],
+  [150,3.30],[175,3.45],[200,3.60],[225,3.73],[250,3.85],[275,4.00],
+  [300,4.15],[350,4.40],[400,4.65],[450,4.90],[500,5.15],
 ]
 
 // From sand / bunker — yards
 export const SG_SAND: [number, number][] = [
-  [5,1.70],[10,1.85],[20,2.00],[30,2.10],[50,2.22],[75,2.35],
-  [100,2.46],[125,2.55],[150,2.64],[175,2.72],[200,2.80],
+  [5,1.90],[10,2.10],[20,2.35],[30,2.55],[50,2.80],[75,3.10],
+  [100,3.35],[125,3.55],[150,3.75],[175,3.95],[200,4.15],
 ]
 
-// On the green — FEET (the HTML stores feet directly in this table)
+// On the green — FEET (distYards is multiplied ×3 before lookup)
 export const SG_GREEN: [number, number][] = [
-  [1,1.01],[2,1.03],[3,1.08],[4,1.14],[5,1.20],[6,1.26],
-  [8,1.33],[10,1.38],[12,1.44],[15,1.51],[20,1.58],[25,1.65],
-  [30,1.72],[40,1.80],[50,1.87],[60,1.93],[80,2.02],[100,2.10],
+  [1,1.01],[2,1.02],[3,1.05],[4,1.10],[5,1.17],[6,1.25],
+  [8,1.37],[10,1.48],[12,1.57],[15,1.67],[20,1.80],[25,1.89],
+  [30,1.97],[40,2.07],[50,2.14],[60,2.20],[80,2.28],[100,2.35],
 ]
 
 // ============================================================

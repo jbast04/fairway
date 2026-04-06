@@ -2,9 +2,10 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import dynamic from 'next/dynamic'
-import type { ActiveRound, ActiveHole, TeeColor } from '@/types'
+import type { ActiveRound, ActiveHole, TeeColor, ActiveShot } from '@/types'
 import { fetchHoleCoords, type HoleCoords } from '@/lib/overpass'
 import { haversineYards } from '@/lib/sg-tables'
+import { createClient } from '@/lib/supabase/client'
 import CourseSearchModal from './CourseSearchModal'
 import TeePickerModal from './TeePickerModal'
 import ShotPanel from './ShotPanel'
@@ -14,6 +15,28 @@ import LiveStatsStrip from './LiveStatsStrip'
 const SatelliteMap = dynamic(() => import('./SatelliteMap'), { ssr: false })
 
 export type PlayStep = 'idle' | 'set-flag' | 'set-start' | 'set-target' | 'set-result' | 'log-shot'
+
+interface CompletedRoundStats {
+  totalScore: number
+  totalPar: number
+  scoreToPar: number
+  totalPutts: number
+  girMade: number
+  firMade: number
+  firTotal: number
+  onePutts: number
+  threePutts: number
+  sandSaves: number
+  penalties: number
+  scrambles: number
+  scrambleOpps: number
+  sgOtt: number
+  sgApp: number
+  sgArg: number
+  sgPutt: number
+  handicapDiff: number
+  savedRoundId: string | null
+}
 
 interface FullCourse {
   id: string
@@ -41,6 +64,8 @@ export default function PlayClient() {
   const [flyToLocation, setFlyToLocation]       = useState<[number, number] | null>(null)
   const [locating, setLocating]                 = useState(false)
   const [holeCoords, setHoleCoords]             = useState<HoleCoords[]>([])
+  const [saving, setSaving]                     = useState(false)
+  const [completedRound, setCompletedRound]     = useState<CompletedRoundStats | null>(null)
 
   const handleCourseSelect = useCallback((course: FullCourse) => {
     setSelectedCourse(course)
@@ -99,6 +124,194 @@ export default function PlayClient() {
       () => { setLocating(false); alert('Location access denied. Please allow location in your browser settings.') },
       { enableHighAccuracy: true, timeout: 10000 },
     )
+  }, [])
+
+  // ── Complete Round ────────────────────────────────────────────────────────
+  const completeRound = useCallback(async () => {
+    if (!activeRound) return
+    setSaving(true)
+    const holes = activeRound.holes
+
+    // Hole scores
+    const holeScores = holes.map(h => h.shots.length)
+    const totalScore = holeScores.reduce((s, v) => s + v, 0)
+    const totalPar   = holes.reduce((s, h) => s + h.par, 0)
+
+    // GIR — reached green within par-2 shots
+    function calcGIR(hole: ActiveHole): boolean {
+      const limit = hole.par - 2
+      for (let i = 0; i < limit; i++) {
+        const s = hole.shots[i]
+        if (!s) return false
+        if (s.isHoled || s.endLie === 'green') return true
+      }
+      return false
+    }
+    const girByHole = holes.map(calcGIR)
+    const girMade   = girByHole.filter(Boolean).length
+
+    // FIR — par 4/5 only; first shot ends in fairway
+    const firHoles = holes.filter(h => h.par >= 4)
+    const firMade  = firHoles.filter(h => h.shots[0]?.endLie === 'fairway').length
+    const firTotal = firHoles.length
+
+    // Putts
+    const puttsByHole  = holes.map(h => h.shots.filter(s => s.startLie === 'green').length)
+    const totalPutts   = puttsByHole.reduce((s, v) => s + v, 0)
+    const onePutts     = puttsByHole.filter(p => p === 1).length
+    const threePutts   = puttsByHole.filter(p => p >= 3).length
+
+    // Penalties & sand saves
+    const totalPenalties = holes.flatMap(h => h.shots).filter(s => s.startLie === 'penalty').length
+    const sandSaves = holes.filter(h => {
+      if (!h.shots.some(s => s.startLie === 'sand')) return false
+      return h.shots.length <= h.par
+    }).length
+
+    // Scrambling — missed GIR but still made par or better
+    let scrambles = 0, scrambleOpps = 0
+    holes.forEach((h, i) => {
+      if (!girByHole[i]) {
+        scrambleOpps++
+        if (holeScores[i] <= h.par) scrambles++
+      }
+    })
+
+    // SG by category
+    const allShots = holes.flatMap(h => h.shots)
+    const sumSG = (cat: ActiveShot['sgCategory']) =>
+      allShots.filter(s => s.sgCategory === cat && s.sg !== null).reduce((a, s) => a + s.sg!, 0)
+    const sgOtt  = +sumSG('ott').toFixed(3)
+    const sgApp  = +sumSG('app').toFixed(3)
+    const sgArg  = +sumSG('arg').toFixed(3)
+    const sgPutt = +sumSG('putt').toFixed(3)
+
+    // Handicap differential
+    const handicapDiff = +((totalScore - activeRound.courseRating) * 113 / activeRound.slopeRating).toFixed(1)
+
+    const stats: CompletedRoundStats = {
+      totalScore, totalPar, scoreToPar: totalScore - totalPar,
+      totalPutts, girMade, firMade, firTotal,
+      onePutts, threePutts, sandSaves, penalties: totalPenalties,
+      scrambles, scrambleOpps, sgOtt, sgApp, sgArg, sgPutt, handicapDiff,
+      savedRoundId: null,
+    }
+
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (user) {
+        // Insert round row
+        const { data: savedRound, error: roundErr } = await supabase
+          .from('rounds')
+          .insert({
+            user_id:      user.id,
+            date:         activeRound.date,
+            course_name:  activeRound.courseName,
+            tees:         activeRound.tees,
+            score:        totalScore,
+            par:          totalPar,
+            putts:        totalPutts,
+            gir:          girMade,
+            fir_made:     firMade,
+            fir_total:    firTotal,
+            sg_ott:       sgOtt,
+            sg_app:       sgApp,
+            sg_arg:       sgArg,
+            sg_putt:      sgPutt,
+            penalties:    totalPenalties,
+            sand_saves:   sandSaves,
+            three_putts:  threePutts,
+            one_putts:    onePutts,
+            course_rating: activeRound.courseRating,
+            slope_rating:  activeRound.slopeRating,
+            handicap_diff: handicapDiff,
+          })
+          .select()
+          .single()
+
+        if (!roundErr && savedRound) {
+          const roundId = savedRound.id
+          stats.savedRoundId = roundId
+
+          // Insert per-hole rows
+          await supabase.from('holes').insert(
+            holes.map((h, i) => ({
+              round_id:    roundId,
+              hole_number: h.holeNumber,
+              par:         h.par,
+              score:       holeScores[i],
+              putts:       puttsByHole[i],
+              gir:         girByHole[i],
+              fir:         h.par >= 4 ? (h.shots[0]?.endLie === 'fairway') : null,
+              sg_total:    +h.shots.reduce((a, s) => a + (s.sg ?? 0), 0).toFixed(3),
+            }))
+          )
+
+          // Insert per-shot rows
+          await supabase.from('shots').insert(
+            holes.flatMap(h =>
+              h.shots.map(s => ({
+                round_id:           roundId,
+                hole_number:        h.holeNumber,
+                shot_number:        s.shotNumber,
+                club:               s.club,
+                start_lie:          s.startLie,
+                end_lie:            s.endLie,
+                start_lat:          s.startLat,
+                start_lng:          s.startLng,
+                end_lat:            s.endLat,
+                end_lng:            s.endLng,
+                dist_yards:         s.endLat && s.endLng
+                  ? haversineYards(s.startLat, s.startLng, s.endLat, s.endLng)
+                  : null,
+                dist_to_flag_before: s.distToFlagBefore,
+                dist_to_flag_after:  s.distToFlagAfter,
+                sg:                  s.sg,
+                sg_category:         s.sgCategory,
+                is_holed:            s.isHoled,
+              }))
+            )
+          )
+        }
+      }
+    } catch (_) {
+      // Save failed — still show local stats
+    }
+
+    setCompletedRound(stats)
+    setActiveRound(null)
+    setStep('idle')
+    setPendingStart(null); setPendingTarget(null); setPendingEnd(null)
+    setSaving(false)
+  }, [activeRound])
+
+  // ── Dev: Simulate a completed round for UI preview ────────────────────────
+  const simulateRound = useCallback(() => {
+    // A realistic ~15-handicap round at Pebble Beach
+    const mockStats: CompletedRoundStats = {
+      totalScore:   88,
+      totalPar:     72,
+      scoreToPar:   16,
+      totalPutts:   34,
+      girMade:       6,
+      firMade:       7,
+      firTotal:     14,
+      onePutts:      5,
+      threePutts:    2,
+      sandSaves:     1,
+      penalties:     2,
+      scrambles:     3,
+      scrambleOpps: 12,
+      sgOtt:  -0.82,
+      sgApp:  -2.14,
+      sgArg:  -0.64,
+      sgPutt: -0.31,
+      handicapDiff: 13.6,
+      savedRoundId: null,   // no DB save in simulation
+    }
+    setCompletedRound(mockStats)
   }, [])
 
   // Place a point at given coords — used by both map tap and confirm button
@@ -228,6 +441,11 @@ export default function PlayClient() {
         <FloatBtn title="My Location" onClick={handleMyLocation}>
           {locating ? '⏳' : '📍'}
         </FloatBtn>
+        {activeRound && (
+          <FloatBtn title="Finish Round" onClick={completeRound}>
+            {saving ? '⏳' : '🏁'} <span className="text-[10px]">Finish</span>
+          </FloatBtn>
+        )}
       </div>
 
       {/* Live stats strip */}
@@ -300,6 +518,12 @@ export default function PlayClient() {
             >
               Find Course
             </button>
+            <button
+              onClick={simulateRound}
+              className="mt-2 w-full rounded-xl border border-border py-2.5 text-xs text-text-dim"
+            >
+              🧪 Preview completed round
+            </button>
           </div>
         </div>
       )}
@@ -318,6 +542,14 @@ export default function PlayClient() {
           baseSlope={selectedCourse.slope}
           onSelect={handleTeeSelect}
           onClose={() => setShowTeePicker(false)}
+        />
+      )}
+
+      {/* Round completion modal */}
+      {completedRound && (
+        <RoundCompleteModal
+          stats={completedRound}
+          onClose={() => setCompletedRound(null)}
         />
       )}
     </div>
@@ -339,5 +571,104 @@ function FloatBtn({
     >
       {children}
     </button>
+  )
+}
+
+// ── Round Complete Modal ──────────────────────────────────────────────────────
+function RoundCompleteModal({
+  stats, onClose,
+}: {
+  stats: CompletedRoundStats
+  onClose: () => void
+}) {
+  const scoreTxt = stats.scoreToPar === 0 ? 'E'
+    : stats.scoreToPar > 0 ? `+${stats.scoreToPar}` : `${stats.scoreToPar}`
+  const scoreColor = stats.scoreToPar < 0 ? 'text-accent' : stats.scoreToPar === 0 ? 'text-text' : 'text-red-stat'
+  const sgTotal = +(stats.sgOtt + stats.sgApp + stats.sgArg + stats.sgPutt).toFixed(2)
+
+  const fmtSG = (v: number) => (v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2))
+  const sgColor = (v: number) => v >= 0 ? 'text-accent' : 'text-red-stat'
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-bg/85 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-sm overflow-y-auto rounded-2xl border border-border bg-surface shadow-2xl" style={{ maxHeight: '90vh' }}>
+        {/* Header */}
+        <div className="p-5 text-center border-b border-border">
+          <p className="text-4xl">🏁</p>
+          <h2 className="mt-2 text-xl font-bold text-text">Round Complete!</h2>
+          <p className="mt-1 text-sm text-text-dim">
+            {stats.savedRoundId ? 'Saved to your history ✓' : 'Stats calculated (not signed in)'}
+          </p>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Score */}
+          <div className="rounded-xl border border-border bg-surface-2 p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-text-dim">Score</p>
+              <p className="text-3xl font-black text-text">{stats.totalScore}</p>
+              <p className="text-sm text-text-dim">Par {stats.totalPar}</p>
+            </div>
+            <div className="text-right">
+              <p className={`text-4xl font-black ${scoreColor}`}>{scoreTxt}</p>
+              <p className="text-xs text-text-dim mt-1">Hdcp Diff: {stats.handicapDiff}</p>
+            </div>
+          </div>
+
+          {/* Key stats grid */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: 'Putts', value: stats.totalPutts },
+              { label: 'GIR', value: `${stats.girMade}/18` },
+              { label: 'FIR', value: stats.firTotal > 0 ? `${stats.firMade}/${stats.firTotal}` : '—' },
+              { label: '1-Putts', value: stats.onePutts },
+              { label: '3-Putts', value: stats.threePutts },
+              { label: 'Penalties', value: stats.penalties },
+              { label: 'Sand Saves', value: stats.sandSaves },
+              {
+                label: 'Scrambling',
+                value: stats.scrambleOpps > 0
+                  ? `${stats.scrambles}/${stats.scrambleOpps}`
+                  : '—',
+              },
+            ].map(s => (
+              <div key={s.label} className="rounded-lg border border-border bg-surface-2 p-2.5 text-center">
+                <p className="text-[10px] text-text-dim">{s.label}</p>
+                <p className="text-base font-bold text-text">{s.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* SG breakdown */}
+          <div className="rounded-xl border border-border bg-surface-2 p-3">
+            <p className="text-xs font-semibold text-text-dim mb-2">Strokes Gained</p>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: 'Off Tee',  value: stats.sgOtt },
+                { label: 'Approach', value: stats.sgApp },
+                { label: 'Arg',      value: stats.sgArg },
+                { label: 'Putting',  value: stats.sgPutt },
+              ].map(sg => (
+                <div key={sg.label} className="flex justify-between items-center rounded-lg border border-border px-3 py-1.5">
+                  <span className="text-xs text-text-dim">{sg.label}</span>
+                  <span className={`text-sm font-bold ${sgColor(sg.value)}`}>{fmtSG(sg.value)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex justify-between items-center border-t border-border pt-2">
+              <span className="text-xs font-semibold text-text-dim">Total SG</span>
+              <span className={`text-base font-black ${sgColor(sgTotal)}`}>{fmtSG(sgTotal)}</span>
+            </div>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="w-full rounded-xl bg-accent py-3.5 text-sm font-bold text-bg"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

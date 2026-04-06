@@ -61,6 +61,7 @@ export default function SatelliteMap({
   const liveMissLineRef      = useRef<Polyline | null>(null)
   const liveLineFlagRef      = useRef<Polyline | null>(null)
   const liveYardageLabelRef  = useRef<Marker | null>(null)
+  const liveFlagLabelRef     = useRef<Marker | null>(null)
   const userMarkerRef        = useRef<Marker | null>(null)
 
   // Derived flag coordinates for current hole
@@ -93,7 +94,6 @@ export default function SatelliteMap({
         scrollWheelZoom: true,
         doubleClickZoom: true,
         touchZoom: false,
-        tap: false,
         boxZoom: false,
         maxZoom: 22,
       })
@@ -125,11 +125,18 @@ export default function SatelliteMap({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Fly to GPS location when requested
+  // Fly to GPS location when requested; after animation ends, nudge so green
+  // appears in the upper third of the screen rather than dead center.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !flyToLocation) return
     map.flyTo(flyToLocation, 19, { animate: true, duration: 1.2 })
+    // Wait for the 1.2s flyTo to finish, then pan so the green sits at ~top third
+    const timer = setTimeout(() => {
+      const h = map.getSize().y
+      map.panBy([0, Math.round(h / 3)], { animate: true })
+    }, 1400)
+    return () => clearTimeout(timer)
   }, [flyToLocation])
 
   // Update center/zoom when course changes (never interrupt an active drag)
@@ -205,6 +212,7 @@ export default function SatelliteMap({
         if (liveMissLineRef.current) { map.removeLayer(liveMissLineRef.current); liveMissLineRef.current = null }
         if (liveLineFlagRef.current) { map.removeLayer(liveLineFlagRef.current); liveLineFlagRef.current = null }
         if (liveYardageLabelRef.current) { map.removeLayer(liveYardageLabelRef.current); liveYardageLabelRef.current = null }
+        if (liveFlagLabelRef.current) { map.removeLayer(liveFlagLabelRef.current); liveFlagLabelRef.current = null }
       }
 
       if ((step === 'set-target' || step === 'set-result') && pendingStart) {
@@ -238,7 +246,33 @@ export default function SatelliteMap({
           if (liveMissLineRef.current) { map.removeLayer(liveMissLineRef.current); liveMissLineRef.current = null }
         }
 
-        if (liveLineFlagRef.current) { map.removeLayer(liveLineFlagRef.current); liveLineFlagRef.current = null }
+        // Dotted red line from crosshair → pin + distance label
+        if (flagLat && flagLng) {
+          const pinYards = haversineYards(c.lat, c.lng, flagLat, flagLng)
+          const midPinLat = (c.lat + flagLat) / 2
+          const midPinLng = (c.lng + flagLng) / 2
+
+          if (liveLineFlagRef.current) {
+            liveLineFlagRef.current.setLatLngs([[c.lat, c.lng], [flagLat, flagLng]])
+          } else {
+            liveLineFlagRef.current = L.polyline([[c.lat, c.lng], [flagLat, flagLng]], {
+              color: '#f87171', weight: 2, opacity: 0.8, dashArray: '4 6',
+            }).addTo(map)
+          }
+
+          const pinText = fmtYards(pinYards) + ' to pin'
+          const pinHtml = `<div style="background:rgba(0,0,0,0.78);color:#f87171;font-weight:700;font-size:12px;padding:2px 6px;border-radius:5px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.6)">${pinText}</div>`
+          const pinIcon = L.divIcon({ className: '', html: pinHtml, iconSize: [90, 20], iconAnchor: [45, 10] })
+          if (liveFlagLabelRef.current) {
+            liveFlagLabelRef.current.setLatLng([midPinLat, midPinLng])
+            liveFlagLabelRef.current.setIcon(pinIcon)
+          } else {
+            liveFlagLabelRef.current = L.marker([midPinLat, midPinLng], { icon: pinIcon, interactive: false, zIndexOffset: 490 }).addTo(map)
+          }
+        } else {
+          if (liveLineFlagRef.current) { map.removeLayer(liveLineFlagRef.current); liveLineFlagRef.current = null }
+          if (liveFlagLabelRef.current) { map.removeLayer(liveFlagLabelRef.current); liveFlagLabelRef.current = null }
+        }
 
       } else if (step === 'set-start' && flagLat && flagLng) {
         // Red dashed line: crosshair → pin
@@ -253,6 +287,7 @@ export default function SatelliteMap({
         setLabel(yards, (c.lat + flagLat) / 2, (c.lng + flagLng) / 2, '#f87171', ' to pin')
         if (liveLineRef.current) { map.removeLayer(liveLineRef.current); liveLineRef.current = null }
         if (liveMissLineRef.current) { map.removeLayer(liveMissLineRef.current); liveMissLineRef.current = null }
+        if (liveFlagLabelRef.current) { map.removeLayer(liveFlagLabelRef.current); liveFlagLabelRef.current = null }
 
       } else {
         clearAll()

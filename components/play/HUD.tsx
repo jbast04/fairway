@@ -35,10 +35,16 @@ export default function HUD({
   round, hole, step, pendingStart, pendingTarget, mapCenter,
   onPrevHole, onNextHole, onConfirm,
 }: Props) {
-  // Distance to flag from pending start (shown in top-left badge)
+  // Distance to flag — always shows crosshair→flag when actively placing a shot
   let distToFlag: number | null = null
-  if (pendingStart && hole.flagLat && hole.flagLng) {
-    distToFlag = Math.round(haversineYards(pendingStart[0], pendingStart[1], hole.flagLat, hole.flagLng))
+  if (hole.flagLat && hole.flagLng) {
+    if (step === 'set-start' || step === 'set-target' || step === 'set-result') {
+      // Live: crosshair → flag
+      distToFlag = Math.round(haversineYards(mapCenter[0], mapCenter[1], hole.flagLat, hole.flagLng))
+    } else if (pendingStart) {
+      // Static: last ball position → flag
+      distToFlag = Math.round(haversineYards(pendingStart[0], pendingStart[1], hole.flagLat, hole.flagLng))
+    }
   }
 
   // Live distance from crosshair, depends on step

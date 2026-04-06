@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { ActiveRound, ActiveHole, ActiveShot, Lie } from '@/types'
 import { calcShotSG, sgCategory, haversineYards } from '@/lib/sg-tables'
 
@@ -12,6 +12,7 @@ const CLUBS = [
 ]
 
 const LIES: { key: Lie; label: string; emoji: string }[] = [
+  { key: 'tee',      label: 'Teebox',   emoji: '🏌️' },
   { key: 'fairway',  label: 'Fairway',  emoji: '🟢' },
   { key: 'rough',    label: 'Rough',    emoji: '🌿' },
   { key: 'sand',     label: 'Sand',     emoji: '🏖' },
@@ -39,10 +40,21 @@ export default function ShotPanel({ round, hole, startCoords, targetCoords, endC
     ? 'tee'
     : (prevShot?.endLie ?? 'fairway')
 
+  // Auto-detect holed: result placed within 1 yard (3 ft) of the flag
+  const autoHoled = hole.flagLat && hole.flagLng
+    ? haversineYards(endCoords[0], endCoords[1], hole.flagLat, hole.flagLng) < 1
+    : false
+
   const [club, setClub]         = useState<string | null>(null)
   const [startLie, setStartLie] = useState<Lie>(defaultStartLie)
-  const [endLie, setEndLie]     = useState<Lie>('fairway')
-  const [isHoled, setIsHoled]   = useState(false)
+  const [endLie, setEndLie]     = useState<Lie>(defaultStartLie === 'green' ? 'green' : 'fairway')
+  const [isHoled, setIsHoled]   = useState(autoHoled)
+
+  // When the player changes startLie to 'green', default endLie to 'green' too
+  // (putts almost always stay on the green)
+  useEffect(() => {
+    if (startLie === 'green') setEndLie('green')
+  }, [startLie])
 
   // Compute distances
   const distYards = haversineYards(startCoords[0], startCoords[1], endCoords[0], endCoords[1])
@@ -62,8 +74,7 @@ export default function ShotPanel({ round, hole, startCoords, targetCoords, endC
   let sg: number | null = null
   if (distToFlagBefore !== null) {
     const afterDist = isHoled ? 0 : (distToFlagAfter ?? 0)
-    const afterLie: Lie | null = isHoled ? null : (endLie === 'green' ? 'green' : endLie)
-    sg = calcShotSG(distToFlagBefore, afterDist, startLie, afterLie)
+    sg = calcShotSG(distToFlagBefore, afterDist, startLie)
   }
 
   const category = sgCategory(startLie, shotNumber, hole.par)

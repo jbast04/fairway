@@ -6,9 +6,9 @@ import { usePathname } from 'next/navigation'
 const TABS = [
   { href: '/',        label: 'Dashboard', icon: HomeIcon },
   { href: '/play',    label: 'Play',      icon: PlayIcon },
+  { href: '/preview', label: 'Preview',   icon: TelescopeIcon },
   { href: '/history', label: 'History',   icon: HistoryIcon },
   { href: '/sg',      label: 'SG',        icon: ChartIcon },
-  { href: '/improve', label: 'Improve',   icon: TrophyIcon },
 ]
 
 export default function BottomNav() {
@@ -83,6 +83,17 @@ function TrophyIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path d="M8 21h8M12 17v4M6 3h12v7a6 6 0 0 1-12 0V3z" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M6 7H3a3 3 0 0 0 3 3M18 7h3a3 3 0 0 1-3 3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function TelescopeIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path d="M3 7l4-3 10 4-4 3L3 7z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13 11l4-3" strokeLinecap="round" />
+      <path d="M10 11l2 5" strokeLinecap="round" />
+      <path d="M8 16h6" strokeLinecap="round" />
     </svg>
   )
 }

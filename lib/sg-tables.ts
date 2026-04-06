@@ -268,6 +268,19 @@ export function calcShotSG(
 }
 
 // ============================================================
+// expectedStrokes — public helper for position-value lookup
+// Used by Course Preview to show expected strokes from any spot
+// ============================================================
+export function expectedStrokes(
+  distYards: number,
+  lie: Lie,
+  benchmark: BenchmarkKey = '10hcp',
+): number {
+  const tables = BENCHMARK_TABLES[benchmark] ?? HCP10
+  return parseFloat(expStrokes(distYards, lie, tables).toFixed(2))
+}
+
+// ============================================================
 // sgCategory — classify shot into SG category
 // ============================================================
 export function sgCategory(lie: Lie, shotNum: number, par: number): SGCategory {

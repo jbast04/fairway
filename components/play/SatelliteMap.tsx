@@ -112,10 +112,12 @@ export default function SatelliteMap({
     map.flyTo(flyToLocation, 19, { animate: true, duration: 1.2 })
   }, [flyToLocation])
 
-  // Update center/zoom when course changes
+  // Update center/zoom when course changes (never interrupt an active drag)
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+    // @ts-expect-error
+    if (map.dragging._draggable?._moving) return
     map.setView(center, zoom, { animate: true })
   }, [center, zoom])
 

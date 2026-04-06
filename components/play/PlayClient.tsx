@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import type { ActiveRound, ActiveHole, TeeColor } from '@/types'
 import CourseSearchModal from './CourseSearchModal'
@@ -113,12 +113,24 @@ export default function PlayClient() {
     ? activeRound.holes[activeRound.currentHole - 1]
     : null
 
+  // Stable references so SatelliteMap's center/zoom effect doesn't fire on every render
+  const courseCenter = useMemo<[number, number]>(
+    () => selectedCourse ? [selectedCourse.lat, selectedCourse.lng] : [39.5, -98.35],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedCourse?.lat, selectedCourse?.lng],
+  )
+  const courseZoom = useMemo(
+    () => (activeRound ? 19 : selectedCourse ? 17 : 4),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [!!activeRound, !!selectedCourse],
+  )
+
   return (
     <div className="relative" style={{ height: 'calc(100dvh - 4rem)' }}>
       {/* Full-screen map */}
       <SatelliteMap
-        center={selectedCourse ? [selectedCourse.lat, selectedCourse.lng] : [39.5, -98.35]}
-        zoom={activeRound ? 19 : selectedCourse ? 17 : 4}
+        center={courseCenter}
+        zoom={courseZoom}
         satellite={layerSatellite}
         step={step}
         pendingStart={pendingStart}
